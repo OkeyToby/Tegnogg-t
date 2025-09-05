@@ -1,0 +1,4 @@
+npm install
+cp .env.example .env   # ret CLASS_CODE hvis ønsket
+npm run dev:hold       # eller npm run start:hold
+# Åbn: http://localhost:3000

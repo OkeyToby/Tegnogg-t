@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klassens Skribbl – Hold</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root { --bg:#0b1324; --card:#111827; --muted:#9ca3af; --border:#1f2937; --ink:#111827; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial; background: var(--bg); color: #fff; }
+    header { padding:12px 16px; background: var(--card); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
+    main { display:grid; grid-template-columns: 320px 1fr 320px; gap:12px; padding:12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    h3 { margin-top:0; }
+    #players .player { padding:6px 8px; border-radius:10px; background:#0f172a; margin-bottom:6px; display:flex; justify-content:space-between; }
+    #canvas { background:#fff; border-radius:12px; touch-action:none; width:100%; height:auto; }
+    button { border:0; border-radius:10px; padding:10px 14px; background:#0ea5e9; color:#fff; font-weight:700; cursor:pointer }
+    input, .code { border:1px solid #374151; border-radius:10px; padding:10px 12px; background:#0f172a; color:#e5e7eb; width:100%; }
+    #chooseModal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+    #chooseModal .inner { background:#fff; color:#111827; padding:18px; border-radius:14px; width:min(420px,92vw) }
+    .wordopt { display:inline-block; margin:6px 6px 0 0; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; cursor:pointer; background:#f8fafc; }
+    #chat { height: 52vh; overflow:auto; background:#0f172a; padding:8px; border-radius:10px; }
+    .row { display:flex; gap:8px; }
+    .muted { color: var(--muted); font-size:.95rem; }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <div>Klassens Skribbl – Hold</div>
+  <div id="roomBadge" class="muted"></div>
+</header>
+
+<div id="login" class="card" style="margin:12px">
+  <h3>Login</h3>
+  <label>Navn</label>
+  <input id="name" placeholder="Fornavn" />
+  <br>
+  <label>Klassekode</label>
+  <input id="code" type="password" placeholder="Klassekode (fra lærer)" />
+  <br>
+  <div class="row">
+    <button id="btnCreate" style="flex:0 0 auto">Opret hold</button>
+    <input id="roomIn" class="code" placeholder="Holdkode (join)" style="flex:1" />
+    <button id="btnJoin" style="flex:0 0 auto">Join hold</button>
+  </div>
+  <p id="loginMsg" style="color:#fca5a5; margin:8px 0 0 0;"></p>
+</div>
+
+<main id="app" style="display:none">
+  <section class="card" id="left">
+    <h3>Spillere</h3>
+    <div id="players"></div>
+    <div id="hostCtl" style="margin-top:8px; display:none">
+      <button id="startBtn">Start spil</button>
+      <p class="muted" style="margin-top:6px">Værten starter første runde.</p>
+    </div>
+  </section>
+
+  <section class="card" id="center">
+    <canvas id="canvas" width="900" height="600" aria-label="Tegneområde"></canvas>
+  </section>
+
+  <section class="card" id="right">
+    <h3>Chat & Gæt</h3>
+    <div id="chat" aria-live="polite"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="msg" placeholder="Skriv gæt…" aria-label="Skriv gæt" />
+      <button id="send">Send</button>
+    </div>
+    <div id="phase" class="muted" style="margin-top:6px"></div>
+  </section>
+</main>
+
+<!-- Modal til tegnerens ordvalg (fri tekst) -->
+<div id="chooseModal">
+  <div class="inner">
+    <h3>Vælg eller skriv et ord</h3>
+    <p class="muted" id="chooseHint">Maks 20 tegn – tydeligt og fair for klassen.</p>
+    <div id="options"></div>
+    <div style="margin-top:10px">
+      <input id="freeWord" placeholder="Skriv dit ord" />
+      <div class="row" style="margin-top:8px">
+        <button id="submitWord" class="wordopt">Brug mit ord</button>
+        <button id="cancelWord" class="wordopt">Luk</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let socket;
+let roomId = null, isHost = false, myId = null, myName = "";
+let canDraw = false;
+
+const $ = (id) => document.getElementById(id);
+function addChat(text) {
+  const c = $('chat'); const p = document.createElement('div'); p.textContent = text;
+  c.appendChild(p); c.scrollTop = c.scrollHeight;
+}
+function renderPlayers(players) {
+  const box = $('players'); box.innerHTML = "";
+  players.forEach(p => {
+    const d = document.createElement('div'); d.className = 'player';
+    const n = document.createElement('span'); n.textContent = p.name;
+    const s = document.createElement('span'); s.textContent = p.score;
+    d.appendChild(n); d.appendChild(s); box.appendChild(d);
+  });
+}
+
+function setupCanvas(){
+  const cv = $('canvas');
+  const ctx = cv.getContext('2d');
+  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=4; ctx.strokeStyle='#111827';
+  let drawing=false, last=null;
+
+  const drawSeg=(a,b)=>{ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); };
+  const sendStroke=(a,b)=>{ if(!canDraw) return; socket.emit('drawStroke', {roomId, stroke:{a,b}}); drawSeg(a,b); };
+
+  const getPos = (e)=>{
+    const r=cv.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    const x = src.clientX - r.left;
+    const y = src.clientY - r.top;
+    return {x,y};
+  };
+
+  cv.addEventListener('mousedown', e=>{ if(!canDraw) return; drawing=true; last=getPos(e); });
+  cv.addEventListener('mousemove', e=>{
+    if(!drawing) return;
+    const pos=getPos(e); sendStroke(last,pos); last=pos;
+  });
+  window.addEventListener('mouseup', ()=> drawing=false);
+
+  cv.addEventListener('touchstart', e=>{ if(!canDraw) return; drawing=true; last=getPos(e); });
+  cv.addEventListener('touchmove', e=>{
+    if(!drawing) return;
+    const pos=getPos(e); sendStroke(last,pos); last=pos; e.preventDefault();
+  }, {passive:false});
+  window.addEventListener('touchend', ()=> drawing=false);
+
+  socket.on('drawStroke', stroke => drawSeg(stroke.a, stroke.b));
+}
+
+$('btnCreate').onclick = ()=>{
+  connect(()=>{
+    socket.emit('createHold', (res)=>{
+      if(!res.ok) return setLoginMsg(res.error||'Fejl.');
+      ({roomId, isHost} = res);
+      myId = socket.id;
+      postJoin(res.players);
+    });
+  });
+};
+
+$('btnJoin').onclick = ()=>{
+  const rid = (($('roomIn').value||"").trim().toUpperCase());
+  if(!rid) return setLoginMsg("Skriv en holdkode.");
+  connect(()=>{
+    socket.emit('joinHold', {roomId: rid}, (res)=>{
+      if(!res.ok) return setLoginMsg(res.error||'Fejl.');
+      roomId = rid; isHost = res.isHost; myId = socket.id;
+      postJoin(res.players);
+    });
+  });
+};
+
+$('send').onclick = ()=>{
+  const m = $('msg'); const t = (m.value||"").trim();
+  if(!t) return;
+  socket.emit('guess', {roomId, msg:t});
+  m.value="";
+};
+
+$('startBtn').onclick = ()=> socket.emit('startGame', {roomId});
+
+function setLoginMsg(t){ $('loginMsg').textContent = t || ""; }
+function postJoin(players){
+  $('login').style.display='none';
+  $('app').style.display='grid';
+  $('roomBadge').textContent = "Hold: " + roomId + (isHost ? " (Vært)" : "");
+  if (isHost) $('hostCtl').style.display = 'block';
+  renderPlayers(players);
+  setupCanvas();
+}
+
+function connect(onReady){
+  myName = (($('name').value||"").trim());
+  const code = (($('code').value||"").trim());
+  if(!myName || !code) return setLoginMsg("Udfyld navn og klassekode.");
+
+  socket = io({ autoConnect:false, auth:{ name: myName, classCode: code } });
+  socket.connect();
+
+  socket.on('connect_error', (e)=> setLoginMsg(e && e.message || "Forbindelsesfejl."));
+
+  socket.on('playerList', renderPlayers);
+
+  socket.on('turnInfo', ({drawerName})=>{
+    canDraw=false;
+    $('phase').textContent = drawerName + " vælger et ord…";
+  });
+
+  // Tegnerens fritekst-ordvalg
+  socket.on('chooseWordFree', ({maxLen})=>{
+    const m = $('chooseModal');
+    const fw = $('freeWord');
+    const submit = $('submitWord');
+    const cancel = $('cancelWord');
+
+    if (fw) fw.value = "";
+
+    submit.onclick = ()=>{
+      const w = (fw.value||"").trim();
+      if (!w) return;
+      let clean = w.replace(/\s+/g, ' ').slice(0, maxLen || 20);
+      socket.emit('wordChosen', {roomId, word: clean});
+      m.style.display='none';
+    };
+    cancel.onclick = ()=>{ m.style.display='none'; };
+    m.style.display='flex';
+  });
+
+  socket.on('youDraw', ({word})=>{
+    canDraw = true;
+    $('phase').textContent = "Du tegner: " + word;
+  });
+
+  socket.on('roundStart', ({drawerName, hint})=>{
+    $('phase').textContent = drawerName + " tegner – gæt i chatten! " + (hint ? "Ord: " + hint : "");
+    const cv=$('canvas'); cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
+  });
+
+  socket.on('roundEnd', ({reason, word})=>{
+    canDraw=false;
+    $('phase').textContent = "Runden sluttede (" + reason + "). Ordet var: " + word;
+  });
+
+  socket.on('chat', ({from, msg})=> addChat(from + ": " + msg));
+
+  socket.on('connect', ()=> { if (onReady) onReady(); });
+}
+</script>
+</body>
+</html>

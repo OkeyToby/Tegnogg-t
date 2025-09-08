@@ -11,17 +11,16 @@ const io     = new Server(server);
 app.use(express.static('public'));
 
 const CLASS_CODE = process.env.CLASS_CODE || 'KLASSE2025';
+
 const WORDS = [
   "guitar","skolegård","viking","drage","cykel","robot",
   "tromme","græsplæne","tavle","vaffelis","flag","postkasse",
   "bibliotek","regnjakke","klaver","læsehest","kagemand","Juelsminde"
 ];
 
-// tider (ms)
 const CHOOSE_TIME = 20 * 1000;
 const DRAW_TIME   = 80 * 1000;
 
-// state
 const rooms = {};
 
 function randomCode(len=4){
@@ -31,6 +30,7 @@ function randomCode(len=4){
   return out;
 }
 function randomWord(){ return WORDS[Math.floor(Math.random()*WORDS.length)]; }
+
 function hintWithReveals(w, revealed){
   let out = '';
   for(let i=0;i<w.length;i++){
@@ -41,6 +41,7 @@ function hintWithReveals(w, revealed){
   }
   return out;
 }
+
 function revealLetter(roomId){
   const r = rooms[roomId];
   if(!r || !r.word) return;
@@ -57,6 +58,7 @@ function revealLetter(roomId){
   const hint = hintWithReveals(r.word, r.revealedIndices);
   io.to(roomId).emit('hintUpdate',{ hint });
 }
+
 function beginDraw(roomId){
   const r = rooms[roomId];
   if(!r || !r.word) return;
@@ -70,12 +72,14 @@ function beginDraw(roomId){
 
   if(r.hintTimers) r.hintTimers.forEach(t => clearTimeout(t));
   r.hintTimers = [];
+
   const letters = r.word.replace(/\s/g,'').length;
   const reveals = Math.max(letters,1);
   for(let i=0;i<reveals;i++){
     const t = Math.floor((DRAW_TIME*(i+1))/(reveals+1));
     r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
   }
+
   clearTimeout(r._timer);
   r._timer = setTimeout(()=>endRound(roomId,'time'), DRAW_TIME);
 }
@@ -105,7 +109,7 @@ io.on('connection', (socket)=>{
       _timer:null,
       hintTimers:[],
       revealedIndices:[],
-      numRounds:1,          // default 1 runde = alle tegner én gang
+      numRounds:1,          // 1 runde = alle tegner én gang
       roundCounter:0
     };
     socket.join(roomId);
@@ -135,12 +139,10 @@ io.on('connection', (socket)=>{
     if(!r || r.hostId !== socket.id) return;
     r.turnIdx = 0;
     r.roundCounter = 0;
-    // bevar eksisterende scores fra lobby? typisk ja – men vi nulstiller for fairness:
-    r.players.forEach(p=>p.score=0);
+    r.players.forEach(p=>p.score=0); // nulstil point ved ny start
     startTurn(roomId);
   });
 
-  // Start nyt spil i samme hold (nulstil point/tilstand)
   socket.on('restartGame',({ roomId })=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
@@ -175,8 +177,9 @@ io.on('connection', (socket)=>{
     if(!player) return;
     const guess = (msg || "").trim().toLowerCase();
     if(!guess) return;
+
     if(guess === r.word && !r.guessed.has(socket.id)){
-      // faldende point efter rækkefølge: 10,8,6,4,2 (min 2)
+      // faldende point: 10,8,6,4,2... (min 2)
       const k = r.guessed.size; // 0 for første rigtige, 1 for anden, ...
       const delta = Math.max(2, 10 - 2*k);
       r.guessed.add(socket.id);
@@ -185,7 +188,6 @@ io.on('connection', (socket)=>{
       io.to(roomId).emit('chat',{ from: player.name, msg:`gættede rigtigt! (+${delta})` });
       io.to(roomId).emit('playerList', r.players);
 
-      // Hvis alle ikke-tegnere har gættet, slut runden tidligt
       const nonDrawerIds = r.players.filter(p=>p.id !== r.drawerId).map(p=>p.id);
       if(nonDrawerIds.length > 0 && nonDrawerIds.every(id => r.guessed.has(id))){
         endRound(roomId,"all-guessed");
@@ -225,14 +227,17 @@ io.on('connection', (socket)=>{
     const r = rooms[roomId];
     if(!r || r.players.length === 0) return;
 
-    // Spil slut? (numRounds * antal spillere) runder gennemført
+    // Spil slut? (numRounds * antal spillere) ture gennemført
     if(r.numRounds && r.roundCounter >= r.numRounds * r.players.length){
       clearTimeout(r._timer);
       if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
       r.phase = 'ended';
-      // Podium
-      const podium = [...r.players].sort((a,b)=>b.score - a.score).slice(0,3)
+
+      const podium = [...r.players]
+        .sort((a,b)=>b.score - a.score)
+        .slice(0,3)
         .map(p=>({ id:p.id, name:p.name, score:p.score }));
+
       io.to(roomId).emit('gameOver',{ podium, players: r.players });
       return;
     }
@@ -267,5 +272,8 @@ io.on('connection', (socket)=>{
 const PORT = process.env.PORT || 3000;
 app.get('/',(req,res)=>{
   res.sendFile(path.join(__dirname,'public','index.html'));
+});
+server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });
+
 });
 server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });

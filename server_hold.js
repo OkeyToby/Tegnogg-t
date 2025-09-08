@@ -11,8 +11,6 @@ const io     = new Server(server);
 app.use(express.static('public'));
 
 const CLASS_CODE = process.env.CLASS_CODE || 'KLASSE2025';
-
-// fallback ordliste hvis tegneren ikke vælger i tide
 const WORDS = [
   "guitar","skolegård","viking","drage","cykel","robot",
   "tromme","græsplæne","tavle","vaffelis","flag","postkasse",
@@ -23,16 +21,16 @@ const WORDS = [
 const CHOOSE_TIME = 20 * 1000;
 const DRAW_TIME   = 80 * 1000;
 
-// hjælpere
+// state
+const rooms = {};
+
 function randomCode(len=4){
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
   for(let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
   return out;
 }
-function randomWord(){
-  return WORDS[Math.floor(Math.random()*WORDS.length)];
-}
+function randomWord(){ return WORDS[Math.floor(Math.random()*WORDS.length)]; }
 function hintWithReveals(w, revealed){
   let out = '';
   for(let i=0;i<w.length;i++){
@@ -69,6 +67,7 @@ function beginDraw(roomId){
   const hint = hintWithReveals(r.word, r.revealedIndices);
   io.to(roomId).emit('roundStart',{ drawerId:r.drawerId, drawerName, hint });
   io.to(r.drawerId).emit('youDraw',{ word:r.word });
+
   if(r.hintTimers) r.hintTimers.forEach(t => clearTimeout(t));
   r.hintTimers = [];
   const letters = r.word.replace(/\s/g,'').length;
@@ -81,9 +80,6 @@ function beginDraw(roomId){
   r._timer = setTimeout(()=>endRound(roomId,'time'), DRAW_TIME);
 }
 
-// rum-state: hvert rum har hostId, players[], turnIdx, fase, word, drawerId, guessed, timere, numRounds og roundCounter
-const rooms = {};
-
 io.use((socket,next)=>{
   const auth = socket.handshake.auth || {};
   const name = (auth.name || "").trim();
@@ -95,7 +91,7 @@ io.use((socket,next)=>{
 });
 
 io.on('connection', (socket)=>{
-  // opret hold
+
   socket.on('createHold',(cb)=>{
     const roomId = randomCode();
     rooms[roomId] = {
@@ -109,14 +105,13 @@ io.on('connection', (socket)=>{
       _timer:null,
       hintTimers:[],
       revealedIndices:[],
-      numRounds:null,
+      numRounds:1,          // default 1 runde = alle tegner én gang
       roundCounter:0
     };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
 
-  // join hold
   socket.on('joinHold',({ roomId },cb)=>{
     const r = rooms[roomId];
     if(!r) return cb && cb({ ok:false, error:"Holdet findes ikke." });
@@ -128,7 +123,6 @@ io.on('connection', (socket)=>{
     cb && cb({ ok:true, roomId, isHost: r.hostId === socket.id, players: r.players });
   });
 
-  // vært sætter antal runder
   socket.on('setRounds', ({ roomId, rounds })=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
@@ -136,16 +130,34 @@ io.on('connection', (socket)=>{
     if(!isNaN(n) && n > 0) r.numRounds = n;
   });
 
-  // start spil
   socket.on('startGame',({ roomId })=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
     r.turnIdx = 0;
     r.roundCounter = 0;
+    // bevar eksisterende scores fra lobby? typisk ja – men vi nulstiller for fairness:
+    r.players.forEach(p=>p.score=0);
     startTurn(roomId);
   });
 
-  // tegner har valgt/skrevet ord
+  // Start nyt spil i samme hold (nulstil point/tilstand)
+  socket.on('restartGame',({ roomId })=>{
+    const r = rooms[roomId];
+    if(!r || r.hostId !== socket.id) return;
+    clearTimeout(r._timer);
+    if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
+    r.turnIdx = 0;
+    r.roundCounter = 0;
+    r.phase='lobby';
+    r.word=null;
+    r.drawerId=null;
+    r.revealedIndices=[];
+    r.guessed=new Set();
+    r.players.forEach(p=>p.score=0);
+    io.to(roomId).emit('playerList', r.players);
+    startTurn(roomId);
+  });
+
   socket.on('wordChosen',({ roomId, word })=>{
     const r = rooms[roomId];
     if(!r || socket.id !== r.drawerId || r.phase !== 'choose') return;
@@ -155,19 +167,25 @@ io.on('connection', (socket)=>{
     beginDraw(roomId);
   });
 
-  // gæt/chat
   socket.on('guess',({ roomId, msg })=>{
     const r = rooms[roomId];
     if(!r || r.phase !== 'draw') return;
+    if(socket.id === r.drawerId) return; // tegneren gætter ikke
     const player = r.players.find(p => p.id === socket.id);
     if(!player) return;
     const guess = (msg || "").trim().toLowerCase();
     if(!guess) return;
     if(guess === r.word && !r.guessed.has(socket.id)){
+      // faldende point efter rækkefølge: 10,8,6,4,2 (min 2)
+      const k = r.guessed.size; // 0 for første rigtige, 1 for anden, ...
+      const delta = Math.max(2, 10 - 2*k);
       r.guessed.add(socket.id);
-      player.score += 10;
-      io.to(roomId).emit('chat',{ from: player.name, msg:"gættede rigtigt!" });
+      player.score += delta;
+
+      io.to(roomId).emit('chat',{ from: player.name, msg:`gættede rigtigt! (+${delta})` });
       io.to(roomId).emit('playerList', r.players);
+
+      // Hvis alle ikke-tegnere har gættet, slut runden tidligt
       const nonDrawerIds = r.players.filter(p=>p.id !== r.drawerId).map(p=>p.id);
       if(nonDrawerIds.length > 0 && nonDrawerIds.every(id => r.guessed.has(id))){
         endRound(roomId,"all-guessed");
@@ -177,14 +195,12 @@ io.on('connection', (socket)=>{
     }
   });
 
-  // tegnestrøg fra tegneren
   socket.on('drawStroke',({ roomId, stroke })=>{
     const r = rooms[roomId];
     if(!r || r.phase !== 'draw' || socket.id !== r.drawerId) return;
     socket.to(roomId).emit('drawStroke', stroke);
   });
 
-  // spilleren forlader
   socket.on('disconnect', ()=>{
     for(const [roomId,r] of Object.entries(rooms)){
       const idx = r.players.findIndex(p=>p.id === socket.id);
@@ -205,15 +221,22 @@ io.on('connection', (socket)=>{
     }
   });
 
-  // intern: start en tur
   function startTurn(roomId){
     const r = rooms[roomId];
     if(!r || r.players.length === 0) return;
+
+    // Spil slut? (numRounds * antal spillere) runder gennemført
     if(r.numRounds && r.roundCounter >= r.numRounds * r.players.length){
-      io.to(roomId).emit('gameOver',{});
+      clearTimeout(r._timer);
+      if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
       r.phase = 'ended';
+      // Podium
+      const podium = [...r.players].sort((a,b)=>b.score - a.score).slice(0,3)
+        .map(p=>({ id:p.id, name:p.name, score:p.score }));
+      io.to(roomId).emit('gameOver',{ podium, players: r.players });
       return;
     }
+
     r.phase = 'choose';
     r.word = null;
     r.revealedIndices = [];
@@ -221,6 +244,7 @@ io.on('connection', (socket)=>{
     const drawerName = r.players.find(p=>p.id === r.drawerId)?.name || "?";
     io.to(roomId).emit('turnInfo',{ drawerId: r.drawerId, drawerName });
     io.to(r.drawerId).emit('chooseWordFree',{ maxLen:20, chooseTime: CHOOSE_TIME/1000 });
+
     clearTimeout(r._timer);
     r._timer = setTimeout(()=>{
       r.word = randomWord().toLowerCase();
@@ -228,7 +252,6 @@ io.on('connection', (socket)=>{
     }, CHOOSE_TIME);
   }
 
-  // intern: slut runde
   function endRound(roomId, reason){
     const r = rooms[roomId];
     if(!r) return;
@@ -237,7 +260,7 @@ io.on('connection', (socket)=>{
     io.to(roomId).emit('roundEnd',{ reason, word: r.word });
     r.turnIdx = (r.turnIdx + 1) % r.players.length;
     r.roundCounter = (r.roundCounter || 0) + 1;
-    r._timer = setTimeout(()=>startTurn(roomId), 2000);
+    r._timer = setTimeout(()=>startTurn(roomId), 1500);
   }
 });
 
@@ -246,4 +269,3 @@ app.get('/',(req,res)=>{
   res.sendFile(path.join(__dirname,'public','index.html'));
 });
 server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });
-

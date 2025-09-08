@@ -1,230 +1,249 @@
-// server_hold.js – Hold/rooms + turbaseret tegning, hvor tegneren kan skrive sit eget ord
-// Simpelt, skolevenligt setup med Socket.IO
-
 const express = require('express');
-const http = require('http');
+const http    = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
-const path = require('path');
+const path    = require('path');
 
-const app = express();
+const app    = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io     = new Server(server);
 
 app.use(express.static('public'));
 
 const CLASS_CODE = process.env.CLASS_CODE || 'KLASSE2025';
 
-// Basis-ordliste til fallback hvis tegneren ikke vælger i tide
+// fallback ordliste hvis tegneren ikke vælger i tide
 const WORDS = [
-  "guitar","skolegård","viking","drage","cykel","robot","tromme","græsplæne","tavle",
-  "vaffelis","flag","postkasse","bibliotek","regnjakke","klaver","læsehest","kagemand","Juelsminde"
+  "guitar","skolegård","viking","drage","cykel","robot",
+  "tromme","græsplæne","tavle","vaffelis","flag","postkasse",
+  "bibliotek","regnjakke","klaver","læsehest","kagemand","Juelsminde"
 ];
 
-// Hjælpere
-function randomCode(len = 4) {
+// tider (ms)
+const CHOOSE_TIME = 20 * 1000;
+const DRAW_TIME   = 80 * 1000;
+
+// hjælpere
+function randomCode(len=4){
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  for(let i=0;i<len;i++) out += chars[Math.floor(Math.random()*chars.length)];
   return out;
 }
-function randomWord() {
-  return WORDS[Math.floor(Math.random() * WORDS.length)];
+function randomWord(){
+  return WORDS[Math.floor(Math.random()*WORDS.length)];
 }
-function maskWord(w) {
-  // Byt ikke-space-tegn ud med _  (så ordblinde kan se ordlængde uden bogstaver)
-  return (w || '').replace(/\S/g, '_');
+function hintWithReveals(w, revealed){
+  let out = '';
+  for(let i=0;i<w.length;i++){
+    const ch = w[i];
+    if (/\s/.test(ch)) out += ' ';
+    else if (revealed && revealed.includes(i)) out += ch;
+    else out += '_';
+  }
+  return out;
+}
+function revealLetter(roomId){
+  const r = rooms[roomId];
+  if(!r || !r.word) return;
+  const unrevealed = [];
+  for(let i=0;i<r.word.length;i++){
+    if(!/\s/.test(r.word[i]) && !(r.revealedIndices||[]).includes(i)){
+      unrevealed.push(i);
+    }
+  }
+  if(unrevealed.length === 0) return;
+  const idx = unrevealed[Math.floor(Math.random()*unrevealed.length)];
+  if(!r.revealedIndices) r.revealedIndices = [];
+  r.revealedIndices.push(idx);
+  const hint = hintWithReveals(r.word, r.revealedIndices);
+  io.to(roomId).emit('hintUpdate',{ hint });
+}
+function beginDraw(roomId){
+  const r = rooms[roomId];
+  if(!r || !r.word) return;
+  r.phase = 'draw';
+  r.guessed = new Set();
+  r.revealedIndices = [];
+  const drawerName = r.players.find(p => p.id === r.drawerId)?.name || '?';
+  const hint = hintWithReveals(r.word, r.revealedIndices);
+  io.to(roomId).emit('roundStart',{ drawerId:r.drawerId, drawerName, hint });
+  io.to(r.drawerId).emit('youDraw',{ word:r.word });
+  if(r.hintTimers) r.hintTimers.forEach(t => clearTimeout(t));
+  r.hintTimers = [];
+  const letters = r.word.replace(/\s/g,'').length;
+  const reveals = Math.max(letters,1);
+  for(let i=0;i<reveals;i++){
+    const t = Math.floor((DRAW_TIME*(i+1))/(reveals+1));
+    r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
+  }
+  clearTimeout(r._timer);
+  r._timer = setTimeout(()=>endRound(roomId,'time'), DRAW_TIME);
 }
 
-// Rum-state
-// rooms[roomId] = {
-//   hostId, players:[{id,name,score}], turnIdx, phase:'lobby'|'choose'|'draw',
-//   word, drawerId, guessed:Set<socketId>, _timer
-// }
+// rum-state: hvert rum har hostId, players[], turnIdx, fase, word, drawerId, guessed, timere, numRounds og roundCounter
 const rooms = {};
 
-// Auth middleware: kræv navn + klassekode i handshake
-io.use((socket, next) => {
+io.use((socket,next)=>{
   const auth = socket.handshake.auth || {};
   const name = (auth.name || "").trim();
   const code = (auth.classCode || "").trim();
-
-  if (!name) return next(new Error("Navn mangler."));
-  if (!code || code !== CLASS_CODE) return next(new Error("Forkert klassekode."));
+  if(!name) return next(new Error("Navn mangler."));
+  if(!code || code !== CLASS_CODE) return next(new Error("Forkert klassekode."));
   socket.data.name = name;
   next();
 });
 
-io.on('connection', (socket) => {
-  // Opret hold (rum)
-  socket.on('createHold', (cb) => {
+io.on('connection', (socket)=>{
+  // opret hold
+  socket.on('createHold',(cb)=>{
     const roomId = randomCode();
     rooms[roomId] = {
       hostId: socket.id,
-      players: [{ id: socket.id, name: socket.data.name, score: 0 }],
-      turnIdx: 0,
-      phase: 'lobby',
-      word: null,
-      drawerId: null,
-      guessed: new Set(),
-      _timer: null
+      players: [{ id: socket.id, name: socket.data.name, score:0 }],
+      turnIdx:0,
+      phase:'lobby',
+      word:null,
+      drawerId:null,
+      guessed:new Set(),
+      _timer:null,
+      hintTimers:[],
+      revealedIndices:[],
+      numRounds:null,
+      roundCounter:0
     };
     socket.join(roomId);
-    cb && cb({ ok: true, roomId, isHost: true, players: rooms[roomId].players });
+    cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
 
-  // Join hold
-  socket.on('joinHold', ({ roomId }, cb) => {
+  // join hold
+  socket.on('joinHold',({ roomId },cb)=>{
     const r = rooms[roomId];
-    if (!r) return cb && cb({ ok: false, error: "Holdet findes ikke." });
-
-    if (!r.players.find(p => p.id === socket.id)) {
-      r.players.push({ id: socket.id, name: socket.data.name, score: 0 });
+    if(!r) return cb && cb({ ok:false, error:"Holdet findes ikke." });
+    if(!r.players.find(p=>p.id === socket.id)){
+      r.players.push({ id: socket.id, name: socket.data.name, score:0 });
       socket.join(roomId);
       io.to(roomId).emit('playerList', r.players);
     }
-    cb && cb({ ok: true, roomId, isHost: r.hostId === socket.id, players: r.players });
+    cb && cb({ ok:true, roomId, isHost: r.hostId === socket.id, players: r.players });
   });
 
-  // Start spil (kun vært)
-  socket.on('startGame', ({ roomId }) => {
+  // vært sætter antal runder
+  socket.on('setRounds', ({ roomId, rounds })=>{
     const r = rooms[roomId];
-    if (!r || r.hostId !== socket.id) return;
+    if(!r || r.hostId !== socket.id) return;
+    const n = parseInt(rounds);
+    if(!isNaN(n) && n > 0) r.numRounds = n;
+  });
+
+  // start spil
+  socket.on('startGame',({ roomId })=>{
+    const r = rooms[roomId];
+    if(!r || r.hostId !== socket.id) return;
+    r.turnIdx = 0;
+    r.roundCounter = 0;
     startTurn(roomId);
   });
 
-  // Tegneren har valgt/skrevet ord
-  socket.on('wordChosen', ({ roomId, word }) => {
+  // tegner har valgt/skrevet ord
+  socket.on('wordChosen',({ roomId, word })=>{
     const r = rooms[roomId];
-    if (!r || socket.id !== r.drawerId || r.phase !== 'choose') return;
-
+    if(!r || socket.id !== r.drawerId || r.phase !== 'choose') return;
     const chosen = (word || "").trim().toLowerCase();
-    if (!chosen) return;
+    if(!chosen) return;
     r.word = chosen;
-    r.phase = 'draw';
-    r.guessed = new Set();
-
-    const drawerName = r.players.find(p => p.id === r.drawerId)?.name || "?";
-    io.to(roomId).emit('roundStart', {
-      drawerId: r.drawerId,
-      drawerName,
-      hint: maskWord(r.word)
-    });
-    io.to(r.drawerId).emit('youDraw', { word: r.word });
-
-    clearTimeout(r._timer);
-    r._timer = setTimeout(() => endRound(roomId, "time"), 80 * 1000); // 80 sek tegnertid
+    beginDraw(roomId);
   });
 
-  // Gæt/chat
-  socket.on('guess', ({ roomId, msg }) => {
+  // gæt/chat
+  socket.on('guess',({ roomId, msg })=>{
     const r = rooms[roomId];
-    if (!r || r.phase !== 'draw') return;
+    if(!r || r.phase !== 'draw') return;
     const player = r.players.find(p => p.id === socket.id);
-    if (!player) return;
-
+    if(!player) return;
     const guess = (msg || "").trim().toLowerCase();
-    if (!guess) return;
-
-    if (guess === r.word && !r.guessed.has(socket.id)) {
+    if(!guess) return;
+    if(guess === r.word && !r.guessed.has(socket.id)){
       r.guessed.add(socket.id);
       player.score += 10;
-      io.to(roomId).emit('chat', { from: player.name, msg: "gættede rigtigt!" });
+      io.to(roomId).emit('chat',{ from: player.name, msg:"gættede rigtigt!" });
       io.to(roomId).emit('playerList', r.players);
-
-      // Hvis alle undtagen tegneren har gættet
-      const nonDrawerIds = r.players.filter(p => p.id !== r.drawerId).map(p => p.id);
-      const allGuessed = nonDrawerIds.length > 0 && nonDrawerIds.every(id => r.guessed.has(id));
-      if (allGuessed) endRound(roomId, "all-guessed");
+      const nonDrawerIds = r.players.filter(p=>p.id !== r.drawerId).map(p=>p.id);
+      if(nonDrawerIds.length > 0 && nonDrawerIds.every(id => r.guessed.has(id))){
+        endRound(roomId,"all-guessed");
+      }
     } else {
-      // Almindelig chat/gæt vises for alle
-      io.to(roomId).emit('chat', { from: player.name, msg });
+      io.to(roomId).emit('chat',{ from: player.name, msg });
     }
   });
 
-  // Tegnestrøg fra tegneren → send til andre
-  socket.on('drawStroke', ({ roomId, stroke }) => {
+  // tegnestrøg fra tegneren
+  socket.on('drawStroke',({ roomId, stroke })=>{
     const r = rooms[roomId];
-    if (!r || r.phase !== 'draw' || socket.id !== r.drawerId) return;
+    if(!r || r.phase !== 'draw' || socket.id !== r.drawerId) return;
     socket.to(roomId).emit('drawStroke', stroke);
   });
 
-  // Disconnect
-  socket.on('disconnect', () => {
-    for (const [roomId, r] of Object.entries(rooms)) {
-      const idx = r.players.findIndex(p => p.id === socket.id);
-      if (idx >= 0) {
-        const leavingWasDrawer = r.players[idx].id === r.drawerId;
-        r.players.splice(idx, 1);
+  // spilleren forlader
+  socket.on('disconnect', ()=>{
+    for(const [roomId,r] of Object.entries(rooms)){
+      const idx = r.players.findIndex(p=>p.id === socket.id);
+      if(idx >= 0){
+        const leavingWasDrawer = (r.players[idx].id === r.drawerId);
+        r.players.splice(idx,1);
         io.to(roomId).emit('playerList', r.players);
-
-        // Ny vært hvis værten smutter
-        if (r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
-
-        // Hvis tegneren smutter midt i runden → slut runden
-        if (leavingWasDrawer && r.phase === 'draw') endRound(roomId, "drawer-left");
-
-        // Tomt rum → fjern
-        if (r.players.length === 0) {
+        if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
+        if(leavingWasDrawer && r.phase === 'draw'){
+          endRound(roomId,"drawer-left");
+        }
+        if(r.players.length === 0){
           clearTimeout(r._timer);
+          if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           delete rooms[roomId];
         }
       }
     }
   });
 
-  // Hjælper: start tur (vælg ny tegner)
-  function startTurn(roomId) {
+  // intern: start en tur
+  function startTurn(roomId){
     const r = rooms[roomId];
-    if (!r || r.players.length === 0) return;
-
+    if(!r || r.players.length === 0) return;
+    if(r.numRounds && r.roundCounter >= r.numRounds * r.players.length){
+      io.to(roomId).emit('gameOver',{});
+      r.phase = 'ended';
+      return;
+    }
     r.phase = 'choose';
     r.word = null;
+    r.revealedIndices = [];
     r.drawerId = r.players[r.turnIdx % r.players.length].id;
-    const drawer = r.players.find(p => p.id === r.drawerId);
-    const drawerName = drawer?.name || "?";
-
-    io.to(roomId).emit('turnInfo', { drawerId: r.drawerId, drawerName });
-
-    // Tegneren får "skriv-dit-eget-ord"-modal
-    io.to(r.drawerId).emit('chooseWordFree', { maxLen: 20, chooseTime: 20 });
-
+    const drawerName = r.players.find(p=>p.id === r.drawerId)?.name || "?";
+    io.to(roomId).emit('turnInfo',{ drawerId: r.drawerId, drawerName });
+    io.to(r.drawerId).emit('chooseWordFree',{ maxLen:20, chooseTime: CHOOSE_TIME/1000 });
     clearTimeout(r._timer);
-    r._timer = setTimeout(() => {
-      // Hvis tegneren ikke valgte i tide → fallback ord
-      r.word = (randomWord() || 'hemmeligt').toLowerCase();
-      r.phase = 'draw';
-      r.guessed = new Set();
-
-      io.to(roomId).emit('roundStart', { drawerId: r.drawerId, drawerName, hint: maskWord(r.word) });
-      io.to(r.drawerId).emit('youDraw', { word: r.word });
-
-      clearTimeout(r._timer);
-      r._timer = setTimeout(() => endRound(roomId, "time"), 80 * 1000);
-    }, 20 * 1000); // 20 sek valg-tid
+    r._timer = setTimeout(()=>{
+      r.word = randomWord().toLowerCase();
+      beginDraw(roomId);
+    }, CHOOSE_TIME);
   }
 
-  // Hjælper: slut runde og gå videre
-  function endRound(roomId, reason) {
+  // intern: slut runde
+  function endRound(roomId, reason){
     const r = rooms[roomId];
-    if (!r) return;
-
+    if(!r) return;
+    if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
     clearTimeout(r._timer);
-    io.to(roomId).emit('roundEnd', { reason, word: r.word });
+    io.to(roomId).emit('roundEnd',{ reason, word: r.word });
     r.turnIdx = (r.turnIdx + 1) % r.players.length;
-
-    // Lille pause før næste tur
-    r._timer = setTimeout(() => startTurn(roomId), 2000);
+    r.roundCounter = (r.roundCounter || 0) + 1;
+    r._timer = setTimeout(()=>startTurn(roomId), 2000);
   }
 });
 
 const PORT = process.env.PORT || 3000;
-
-// Root → public/index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+app.get('/',(req,res)=>{
+  res.sendFile(path.join(__dirname,'public','index.html'));
 });
+server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });
 
-server.listen(PORT, () => {
-  console.log("Hold-server lytter på", PORT);
-});

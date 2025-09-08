@@ -1,3 +1,5 @@
+"use strict";
+
 const express = require('express');
 const http    = require('http');
 const { Server } = require('socket.io');
@@ -67,6 +69,7 @@ function beginDraw(roomId){
   r.revealedIndices = [];
   const drawerName = r.players.find(p => p.id === r.drawerId)?.name || '?';
   const hint = hintWithReveals(r.word, r.revealedIndices);
+
   io.to(roomId).emit('roundStart',{ drawerId:r.drawerId, drawerName, hint });
   io.to(r.drawerId).emit('youDraw',{ word:r.word });
 
@@ -130,7 +133,7 @@ io.on('connection', (socket)=>{
   socket.on('setRounds', ({ roomId, rounds })=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
-    const n = parseInt(rounds);
+    const n = parseInt(rounds, 10);
     if(!isNaN(n) && n > 0) r.numRounds = n;
   });
 
@@ -204,20 +207,20 @@ io.on('connection', (socket)=>{
   });
 
   socket.on('disconnect', ()=>{
-    for(const [roomId,r] of Object.entries(rooms)){
+    for(const [rid,r] of Object.entries(rooms)){
       const idx = r.players.findIndex(p=>p.id === socket.id);
       if(idx >= 0){
         const leavingWasDrawer = (r.players[idx].id === r.drawerId);
         r.players.splice(idx,1);
-        io.to(roomId).emit('playerList', r.players);
+        io.to(rid).emit('playerList', r.players);
         if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
         if(leavingWasDrawer && r.phase === 'draw'){
-          endRound(roomId,"drawer-left");
+          endRound(rid,"drawer-left");
         }
         if(r.players.length === 0){
           clearTimeout(r._timer);
           if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
-          delete rooms[roomId];
+          delete rooms[rid];
         }
       }
     }
@@ -272,8 +275,5 @@ io.on('connection', (socket)=>{
 const PORT = process.env.PORT || 3000;
 app.get('/',(req,res)=>{
   res.sendFile(path.join(__dirname,'public','index.html'));
-});
-server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });
-
 });
 server.listen(PORT,()=>{ console.log('Hold-server lytter på', PORT); });

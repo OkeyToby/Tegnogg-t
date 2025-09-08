@@ -23,6 +23,14 @@
     #chat { height: 52vh; overflow:auto; background:#0f172a; padding:8px; border-radius:10px; }
     .row { display:flex; gap:8px; }
     .muted { color: var(--muted); font-size:.95rem; }
+    #podiumModal { position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:10000; }
+    #podiumModal .inner { background:#111827; color:#fff; padding:22px; border-radius:16px; width:min(520px,94vw); text-align:center; border:1px solid #1f2937; }
+    .podium { display:flex; align-items:flex-end; justify-content:center; gap:12px; margin-top:14px; }
+    .pod { background:#0f172a; border:1px solid #1f2937; border-radius:12px; width:30%; padding:10px; }
+    .pod.gold { background:#2a1; } .pod.silver{ background:#666 } .pod.bronze{ background:#a65 }
+    .toolrow { display:flex; gap:8px; align-items:center; margin-top:8px }
+    .toolrow button { padding:8px 10px }
+    .toolrow input[type=range]{ width:120px }
     @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -54,10 +62,11 @@
     <div id="players"></div>
     <div id="hostCtl" style="margin-top:8px; display:none">
       <button id="startBtn">Start spil</button>
-      <p class="muted" style="margin-top:6px">Værten starter første runde.</p>
+      <button id="restartBtn" style="background:#22c55e">Start nyt spil</button>
+      <p class="muted" style="margin-top:6px">1 runde = alle har tegnet én gang.</p>
       <div id="roundCtl" style="margin-top:8px; display:none">
         <label>Runder: </label>
-        <input id="roundsInput" type="number" min="1" value="3" style="width:60px">
+        <input id="roundsInput" type="number" min="1" value="1" style="width:60px">
         <button id="setRoundsBtn">Sæt runder</button>
       </div>
     </div>
@@ -65,6 +74,12 @@
 
   <section class="card" id="center">
     <canvas id="canvas" width="900" height="600" aria-label="Tegneområde"></canvas>
+    <div class="toolrow">
+      <button id="penBtn" title="Pen">Pen</button>
+      <button id="eraserBtn" title="Viskelæder" style="background:#f97316">Viskelæder</button>
+      <label>Streg:</label>
+      <input id="sizeRange" type="range" min="2" max="24" value="4">
+    </div>
   </section>
 
   <section class="card" id="right">
@@ -79,6 +94,8 @@
       <button data-color="#ef4444" style="background:#ef4444;width:24px;height:24px;border-radius:4px"></button>
       <button data-color="#10b981" style="background:#10b981;width:24px;height:24px;border-radius:4px"></button>
       <button data-color="#3b82f6" style="background:#3b82f6;width:24px;height:24px;border-radius:4px"></button>
+      <button data-color="#f59e0b" style="background:#f59e0b;width:24px;height:24px;border-radius:4px"></button>
+      <button data-color="#a855f7" style="background:#a855f7;width:24px;height:24px;border-radius:4px"></button>
     </div>
     <div id="timer" class="muted" style="margin-top:6px"></div>
     <div id="phase" class="muted" style="margin-top:6px"></div>
@@ -100,6 +117,16 @@
   </div>
 </div>
 
+<div id="podiumModal">
+  <div class="inner">
+    <h3>Podium</h3>
+    <div id="podiumList" class="podium"></div>
+    <div style="margin-top:10px">
+      <button id="closePodium">Luk</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let socket;
 let roomId = null, isHost = false, myId = null, myName = "";
@@ -107,6 +134,8 @@ let canDraw = false;
 let currentColor = '#111827';
 let chooseTimerInt = null;
 let drawTimerInt = null;
+let isErasing = false;
+let brushSize = 4;
 
 const $ = (id) => document.getElementById(id);
 function addChat(text) {
@@ -126,14 +155,23 @@ function renderPlayers(players) {
 function setupCanvas(){
   const cv = $('canvas');
   const ctx = cv.getContext('2d');
-  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=4; ctx.strokeStyle=currentColor;
+  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=brushSize; ctx.strokeStyle=currentColor;
   let drawing=false, last=null;
 
-  const drawSeg=(a,b)=>{ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); };
+  const drawSeg=(a,b,erase,color,size)=>{
+    ctx.save();
+    if(erase){ ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=size||18; }
+    else { ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=color||currentColor; ctx.lineWidth=size||brushSize; }
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.restore();
+  };
   const sendStroke=(a,b)=>{
     if(!canDraw) return;
-    socket.emit('drawStroke',{roomId, stroke:{a,b,color:currentColor}});
-    drawSeg(a,b);
+    const payload = isErasing
+      ? { a, b, erase:true, size: Math.max(brushSize*3, 12) }
+      : { a, b, color: currentColor, size: brushSize };
+    socket.emit('drawStroke',{roomId, stroke: payload});
+    drawSeg(a,b, payload.erase, payload.color, payload.size);
   };
 
   const getPos = (e)=>{
@@ -159,21 +197,20 @@ function setupCanvas(){
   window.addEventListener('touchend', ()=> drawing=false);
 
   socket.on('drawStroke', data => {
-    const {a,b,color} = data;
-    const prevColor = ctx.strokeStyle;
-    ctx.strokeStyle = color || prevColor;
-    drawSeg(a,b);
-    ctx.strokeStyle = prevColor;
+    const {a,b,color,erase,size} = data;
+    drawSeg(a,b,erase,color,size);
   });
+
+  $('penBtn').onclick = ()=>{ isErasing=false; };
+  $('eraserBtn').onclick = ()=>{ isErasing=true; };
+  $('sizeRange').oninput = (e)=>{ brushSize = parseInt(e.target.value||"4",10); };
 }
 
 $('btnCreate').onclick = ()=>{
   connect(()=>{
     socket.emit('createHold', (res)=>{
       if(!res.ok) return setLoginMsg(res.error||'Fejl.');
-      ({roomId, isHost} = res);
-      myId = socket.id;
-      postJoin(res.players);
+      ({roomId, isHost} = res); myId = socket.id; postJoin(res.players);
     });
   });
 };
@@ -184,8 +221,7 @@ $('btnJoin').onclick = ()=>{
   connect(()=>{
     socket.emit('joinHold', {roomId: rid}, (res)=>{
       if(!res.ok) return setLoginMsg(res.error||'Fejl.');
-      roomId = rid; isHost = res.isHost; myId = socket.id;
-      postJoin(res.players);
+      roomId = rid; isHost = res.isHost; myId = socket.id; postJoin(res.players);
     });
   });
 };
@@ -197,7 +233,8 @@ $('send').onclick = ()=>{
   m.value="";
 };
 
-$('startBtn').onclick = ()=> socket.emit('startGame', {roomId});
+$('startBtn').onclick  = ()=> socket.emit('startGame',   {roomId});
+$('restartBtn').onclick= ()=> socket.emit('restartGame', {roomId});
 
 function setLoginMsg(t){ $('loginMsg').textContent = t || ""; }
 function postJoin(players){
@@ -214,6 +251,7 @@ function postJoin(players){
   $('palette').addEventListener('click', e=>{
     const c = e.target.getAttribute('data-color');
     if(c){
+      isErasing = false;
       currentColor = c;
       const ctx = $('canvas').getContext('2d');
       ctx.strokeStyle = currentColor;
@@ -237,7 +275,6 @@ function connect(onReady){
   socket.connect();
 
   socket.on('connect_error', (e)=> setLoginMsg(e && e.message || "Forbindelsesfejl."));
-
   socket.on('playerList', renderPlayers);
 
   socket.on('turnInfo', ({drawerName})=>{
@@ -264,11 +301,7 @@ function connect(onReady){
       modal.style.display='none';
     };
     cancel.onclick = ()=>{ modal.style.display='none'; };
-    fw.onkeydown = (e)=>{
-      if(e.key === 'Enter'){
-        submit.onclick();
-      }
-    };
+    fw.onkeydown = (e)=>{ if(e.key === 'Enter'){ submit.onclick(); } };
     modal.style.display='flex';
 
     clearInterval(chooseTimerInt);
@@ -277,9 +310,7 @@ function connect(onReady){
     chooseTimerInt = setInterval(()=>{
       remaining--;
       $('timer').textContent = "Tid til ordvalg: " + remaining + "s";
-      if(remaining <= 0){
-        clearInterval(chooseTimerInt);
-      }
+      if(remaining <= 0) clearInterval(chooseTimerInt);
     }, 1000);
   });
 
@@ -300,9 +331,7 @@ function connect(onReady){
     drawTimerInt = setInterval(()=>{
       remaining--;
       $('timer').textContent = "Tid tilbage: " + remaining + "s";
-      if(remaining <= 0){
-        clearInterval(drawTimerInt);
-      }
+      if(remaining <= 0) clearInterval(drawTimerInt);
     }, 1000);
   });
 
@@ -324,10 +353,29 @@ function connect(onReady){
 
   socket.on('chat', ({from, msg})=> addChat(from + ": " + msg));
 
+  // Podium ved spilslut
+  socket.on('gameOver', ({ podium, players })=>{
+    const wrap = $('podiumList'); wrap.innerHTML = "";
+    const order = [1,0,2]; // vis 2. plads, 1. plads, 3. plads i midten
+    const classes = ['silver','gold','bronze'];
+    (podium||[]).forEach((p,idx)=>{
+      const div = document.createElement('div');
+      div.className = 'pod ' + classes[idx];
+      const rank = idx===0?'1.':'2.'===idx?'2.':'';
+      div.innerHTML = `<div style="font-size:20px;font-weight:800">${idx+1}. plads</div>
+        <div style="font-size:18px">${p.name||'?'}</div>
+        <div class="muted">Point: ${p.score||0}</div>`;
+      wrap.appendChild(div);
+    });
+    $('podiumModal').style.display='flex';
+  });
+  $('closePodium').onclick = ()=>{ $('podiumModal').style.display='none'; };
+
   socket.on('connect', ()=> { if (onReady) onReady(); });
 }
 </script>
 
 </body>
 </html>
+
 

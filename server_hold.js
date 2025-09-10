@@ -167,7 +167,7 @@ io.on('connection', (socket)=>{
         if(leavingWasDrawer && r.phase === 'draw'){
         if(r.players.length === 0){
           clearTimeout(r._timer);
-          if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
+            if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           delete rooms[rid];
     socket.on('disconnect', ()=>{
       for(const [rid,r] of Object.entries(rooms)){

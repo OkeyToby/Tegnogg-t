@@ -66,7 +66,7 @@ function beginDraw(roomId){
   if(!r || !r.word) return;
   r.phase = 'draw';
   r.guessed = new Set();
-  r.revealedIndices = [];
+   r.revealedIndices = [];
   const drawerName = r.players.find(p => p.id === r.drawerId)?.name || '?';
   const hint = hintWithReveals(r.word, r.revealedIndices);
 
@@ -91,9 +91,11 @@ io.use((socket,next)=>{
   const auth = socket.handshake.auth || {};
   const name = (auth.name || "").trim();
   const code = (auth.classCode || "").trim();
+  const avatar = auth.avatar || "";
   if(!name) return next(new Error("Navn mangler."));
   if(!code || code !== CLASS_CODE) return next(new Error("Forkert klassekode."));
   socket.data.name = name;
+  socket.data.avatar = avatar;
   next();
 });
 
@@ -104,6 +106,7 @@ io.on('connection', (socket)=>{
     rooms[roomId] = {
       hostId: socket.id,
       players: [{ id: socket.id, name: socket.data.name, score:0 }],
+      players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 }],
       turnIdx:0,
       phase:'lobby',
       word:null,
@@ -125,6 +128,7 @@ io.on('connection', (socket)=>{
     if(!r) return cb && cb({ ok:false, error:"Holdet findes ikke." });
     if(!r.players.find(p=>p.id === socket.id)){
       r.players.push({ id: socket.id, name: socket.data.name, score:0 });
+      r.players.push({ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 });
       socket.join(roomId);
       io.to(roomId).emit('playerList', r.players);
     }
@@ -150,8 +154,6 @@ io.on('connection', (socket)=>{
         io.to(rid).emit('playerList', r.players);
         if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
         if(leavingWasDrawer && r.phase === 'draw'){
-          endRound(rid,"drawer-left");
-        }
         if(r.players.length === 0){
           clearTimeout(r._timer);
           if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));

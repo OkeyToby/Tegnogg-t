@@ -18,6 +18,7 @@
     #canvas { background:#fff; border-radius:12px; touch-action:none; width:100%; height:auto; }
     button { border:0; border-radius:10px; padding:10px 14px; background:#0ea5e9; color:#fff; font-weight:700; cursor:pointer }
     input, .code { border:1px solid #374151; border-radius:10px; padding:10px 12px; background:#0f172a; color:#e5e7eb; width:100%; }
+    input, select, .code { border:1px solid #374151; border-radius:10px; padding:10px 12px; background:#0f172a; color:#e5e7eb; width:100%; }
     #chooseModal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:9999; }
     #chooseModal .inner { background:#fff; color:#111827; padding:18px; border-radius:14px; width:min(420px,92vw) }
     .wordopt { display:inline-block; margin:6px 6px 0 0; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; cursor:pointer; background:#f8fafc; }
@@ -50,6 +51,15 @@
   <h3>Login</h3>
   <label>Navn</label>
   <input id="name" placeholder="Fornavn" />
+  <br>
+  <label>Avatar</label>
+  <select id="avatar">
+    <option value="😀">😀</option>
+    <option value="😎">😎</option>
+    <option value="🐱">🐱</option>
+    <option value="🐻">🐻</option>
+    <option value="🦊">🦊</option>
+  </select>
   <br>
   <label>Klassekode</label>
   <input id="code" type="password" placeholder="Klassekode (fra lærer)" />

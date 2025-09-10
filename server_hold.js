@@ -66,7 +66,7 @@ function beginDraw(roomId){
   if(!r || !r.word) return;
   r.phase = 'draw';
   r.guessed = new Set();
-   r.revealedIndices = [];
+  r.revealedIndices = [];
   const drawerName = r.players.find(p => p.id === r.drawerId)?.name || '?';
   const hint = hintWithReveals(r.word, r.revealedIndices);
 
@@ -80,7 +80,7 @@ function beginDraw(roomId){
   const reveals = Math.max(letters,1);
   for(let i=0;i<reveals;i++){
     const t = Math.floor((DRAW_TIME*(i+1))/(reveals+1));
-   r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
+    r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
   }
 
   clearTimeout(r._timer);
@@ -105,7 +105,6 @@ io.on('connection', (socket)=>{
     const roomId = randomCode();
     rooms[roomId] = {
       hostId: socket.id,
-      players: [{ id: socket.id, name: socket.data.name, score:0 }],
       players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 }],
       turnIdx:0,
       phase:'lobby',
@@ -115,25 +114,9 @@ io.on('connection', (socket)=>{
       _timer:null,
       hintTimers:[],
       revealedIndices:[],
-      numRounds:1,          // 1 runde = alle tegner én gang
       numRounds:1,          // antal komplette spiller-cyklusser
       roundCounter:0
-   };
     };
-      rooms[roomId] = {
-        hostId: socket.id,
-        players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 }],
-        turnIdx:0,
-        phase:'lobby',
-        word:null,
-        drawerId:null,
-        guessed:new Set(),
-        _timer:null,
-        hintTimers:[],
-        revealedIndices:[],
-        numRounds:1,          // antal komplette spiller-cyklusser
-        roundCounter:0
-      };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
@@ -142,7 +125,6 @@ io.on('connection', (socket)=>{
     const r = rooms[roomId];
     if(!r) return cb && cb({ ok:false, error:"Holdet findes ikke." });
     if(!r.players.find(p=>p.id === socket.id)){
-      r.players.push({ id: socket.id, name: socket.data.name, score:0 });
       r.players.push({ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 });
       socket.join(roomId);
       io.to(roomId).emit('playerList', r.players);
@@ -158,11 +140,8 @@ io.on('connection', (socket)=>{
   });
 
   socket.on('startGame',({ roomId })=>{
-@@ -208,72 +208,74 @@ io.on('connection', (socket)=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
-  const r = rooms[roomId];
-  if(!r || r.hostId !== socket.id) return;
 
     r.turnIdx = Math.floor(Math.random()*r.players.length);
     r.roundCounter = 0;
@@ -170,9 +149,7 @@ io.on('connection', (socket)=>{
     io.to(roomId).emit('playerList', r.players);
 
     startTurn(roomId);
-  startTurn(roomId);
   });
-
 
   socket.on('disconnect', ()=>{
     for(const [rid,r] of Object.entries(rooms)){
@@ -187,35 +164,18 @@ io.on('connection', (socket)=>{
         }
         if(r.players.length === 0){
           clearTimeout(r._timer);
-            if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           delete rooms[rid];
-    socket.on('disconnect', ()=>{
-      for(const [rid,r] of Object.entries(rooms)){
-        const idx = r.players.findIndex(p=>p.id === socket.id);
-        if(idx >= 0){
-          const leavingWasDrawer = (r.players[idx].id === r.drawerId);
-          r.players.splice(idx,1);
-          io.to(rid).emit('playerList', r.players);
-          if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
-          if(r.players.length === 0){
-            clearTimeout(r._timer);
-            if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
-            delete rooms[rid];
-          }
         }
       }
     }
   });
-    });
 
 
   function startTurn(roomId){
     const r = rooms[roomId];
     if(!r || r.players.length === 0) return;
 
-    // Spil slut? (numRounds * antal spillere) ture gennemført
-    if(r.numRounds && r.roundCounter >= r.numRounds * r.players.length){
     // Spil slut? Alle har tegnet `numRounds` gange.
     const totalTurns = r.numRounds * r.players.length;
     if(r.numRounds && r.roundCounter >= totalTurns){
@@ -232,7 +192,6 @@ io.on('connection', (socket)=>{
       return;
     }
 
-    }
     r.phase = 'choose';
     r.word = null;
     r.revealedIndices = [];
@@ -255,9 +214,7 @@ io.on('connection', (socket)=>{
     clearTimeout(r._timer);
     io.to(roomId).emit('roundEnd',{ reason, word: r.word });
     r.turnIdx = (r.turnIdx + 1) % r.players.length;
-    r.roundCounter = (r.roundCounter || 0) + 1;
-    // Registrer én afsluttet tegnerunde
-    r.roundCounter += 1;
+    r.roundCounter = (r.roundCounter || 0) + 1; // Registrer én afsluttet tegnerunde
     r._timer = setTimeout(()=>startTurn(roomId), 1500);
   }
 });

@@ -138,7 +138,7 @@
   <div class="inner">
     <h3>Podium</h3>
     <div id="podiumList" class="podium"></div>
-    <div style="margin-top:10px">
+     <div style="margin-top:10px">
       <button id="closePodium">Luk</button>
     </div>
   </div>
@@ -163,9 +163,13 @@ function renderPlayers(players) {
   const box = $('players'); box.innerHTML = "";
   players.forEach(p => {
     const d = document.createElement('div'); d.className = 'player';
+    const info = document.createElement('span');
+    const av = document.createElement('span'); av.textContent = p.avatar || ''; av.style.marginRight = '6px';
     const n = document.createElement('span'); n.textContent = p.name;
+    info.appendChild(av); info.appendChild(n);
     const s = document.createElement('span'); s.textContent = p.score;
     d.appendChild(n); d.appendChild(s); box.appendChild(d);
+    d.appendChild(info); d.appendChild(s); box.appendChild(d);
   });
 }
 

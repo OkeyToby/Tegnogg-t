@@ -120,6 +120,20 @@ io.on('connection', (socket)=>{
       roundCounter:0
    };
     };
+      rooms[roomId] = {
+        hostId: socket.id,
+        players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 }],
+        turnIdx:0,
+        phase:'lobby',
+        word:null,
+        drawerId:null,
+        guessed:new Set(),
+        _timer:null,
+        hintTimers:[],
+        revealedIndices:[],
+        numRounds:1,          // antal komplette spiller-cyklusser
+        roundCounter:0
+      };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
@@ -147,6 +161,8 @@ io.on('connection', (socket)=>{
 @@ -208,72 +208,74 @@ io.on('connection', (socket)=>{
     const r = rooms[roomId];
     if(!r || r.hostId !== socket.id) return;
+  const r = rooms[roomId];
+  if(!r || r.hostId !== socket.id) return;
 
     r.turnIdx = Math.floor(Math.random()*r.players.length);
     r.roundCounter = 0;
@@ -154,7 +170,9 @@ io.on('connection', (socket)=>{
     io.to(roomId).emit('playerList', r.players);
 
     startTurn(roomId);
+  startTurn(roomId);
   });
+
 
   socket.on('disconnect', ()=>{
     for(const [rid,r] of Object.entries(rooms)){
@@ -165,9 +183,12 @@ io.on('connection', (socket)=>{
         io.to(rid).emit('playerList', r.players);
         if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
         if(leavingWasDrawer && r.phase === 'draw'){
+          endRound(rid,'drawerLeft');
+        }
         if(r.players.length === 0){
           clearTimeout(r._timer);
             if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
+          if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           delete rooms[rid];
     socket.on('disconnect', ()=>{
       for(const [rid,r] of Object.entries(rooms)){
@@ -187,6 +208,7 @@ io.on('connection', (socket)=>{
     }
   });
     });
+
 
   function startTurn(roomId){
     const r = rooms[roomId];
@@ -211,7 +233,6 @@ io.on('connection', (socket)=>{
     }
 
     }
-
     r.phase = 'choose';
     r.word = null;
     r.revealedIndices = [];

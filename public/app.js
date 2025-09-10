@@ -117,7 +117,7 @@ $('btnJoin').onclick = ()=>{
 };
 
 $('send').onclick = sendGuess;
-$('msg').addEventListener('keydown', (e)=>{
+$('msg').addEventListener('keydown', (e)=>{ 
   if(e.key === 'Enter'){ e.preventDefault(); sendGuess(); }
 });
 
@@ -187,7 +187,6 @@ function connect(onReady){
   const avatar = $('avatar').value;
   if(!myName || !code) return setLoginMsg("Udfyld navn og klassekode.");
 
-  socket = io({ autoConnect:false, auth:{ name: myName, classCode: code } });
   socket = io({ autoConnect:false, auth:{ name: myName, classCode: code, avatar } });
   socket.connect();
 
@@ -198,13 +197,13 @@ function connect(onReady){
     canDraw=false;
     $('phase').textContent = drawerName + " vælger et ord…";
     $('timer').textContent = '';
-    clearInterval(drawTimerInt);
-    clearInterval(chooseTimerInt);
+    clearInterval(drawTimerInt); drawTimerInt = null;
+    clearInterval(chooseTimerInt); chooseTimerInt = null;
   });
 
   socket.on('chooseWordFree', ({maxLen, chooseTime})=>{
     const modal = $('chooseModal');
-     const fw = $('freeWord');
+    const fw = $('freeWord');
     const submit = $('submitWord');
     const cancel = $('cancelWord');
 
@@ -245,7 +244,14 @@ function connect(onReady){
       drawTimerInt = setInterval(()=>{
         remaining--;
         $('timer').textContent = "Tid tilbage: " + remaining + "s";
-     });
+        if(remaining <= 0){
+          clearInterval(drawTimerInt); drawTimerInt = null;
+        }
+      }, 1000);
+    }
+    clearInterval(chooseTimerInt); chooseTimerInt = null;
+  });
+
   socket.on('roundStart', ({drawerName, hint})=>{
     $('phase').textContent = drawerName + " tegner – gæt i chatten! Ord: " + (hint || '');
     const cv=$('canvas'); cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
@@ -295,7 +301,7 @@ function connect(onReady){
     });
     $('podiumModal').style.display='flex';
   });
-  });
+
   $('closePodium').onclick = ()=>{ $('podiumModal').style.display='none'; };
 
   socket.on('connect', ()=> { if (onReady) onReady(); });
@@ -330,4 +336,3 @@ window.addEventListener('DOMContentLoaded', ()=>{
   $('code').addEventListener('keydown', e=>{ if(e.key==='Enter'){ $('btnCreate').click(); } });
   $('roomIn').addEventListener('keydown', e=>{ if(e.key==='Enter'){ $('btnJoin').click(); } });
 });
-

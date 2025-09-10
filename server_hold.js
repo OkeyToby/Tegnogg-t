@@ -112,9 +112,9 @@ io.on('connection', (socket)=>{
       drawerId:null,
       guessed:new Set(),
       _timer:null,
-      hintTimers:[],
-      revealedIndices:[],
-      numRounds:1,          // antal komplette spiller-cyklusser
+      hintTimers[],
+      revealedIndices[],
+      numRounds:1,
       roundCounter:0
     };
     socket.join(roomId);
@@ -171,12 +171,10 @@ io.on('connection', (socket)=>{
     }
   });
 
-
   function startTurn(roomId){
     const r = rooms[roomId];
     if(!r || r.players.length === 0) return;
 
-    // Spil slut? Alle har tegnet `numRounds` gange.
     const totalTurns = r.numRounds * r.players.length;
     if(r.numRounds && r.roundCounter >= totalTurns){
       clearTimeout(r._timer);
@@ -214,7 +212,7 @@ io.on('connection', (socket)=>{
     clearTimeout(r._timer);
     io.to(roomId).emit('roundEnd',{ reason, word: r.word });
     r.turnIdx = (r.turnIdx + 1) % r.players.length;
-    r.roundCounter = (r.roundCounter || 0) + 1; // Registrer én afsluttet tegnerunde
+    r.roundCounter = (r.roundCounter || 0) + 1;
     r._timer = setTimeout(()=>startTurn(roomId), 1500);
   }
 });

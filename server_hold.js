@@ -80,7 +80,7 @@ function beginDraw(roomId){
   const reveals = Math.max(letters,1);
   for(let i=0;i<reveals;i++){
     const t = Math.floor((DRAW_TIME*(i+1))/(reveals+1));
-    r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
+   r.hintTimers.push(setTimeout(()=>revealLetter(roomId), t));
   }
 
   clearTimeout(r._timer);
@@ -119,6 +119,7 @@ io.on('connection', (socket)=>{
       numRounds:1,          // antal komplette spiller-cyklusser
       roundCounter:0
    };
+    };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
@@ -168,10 +169,24 @@ io.on('connection', (socket)=>{
           clearTimeout(r._timer);
           if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
           delete rooms[rid];
+    socket.on('disconnect', ()=>{
+      for(const [rid,r] of Object.entries(rooms)){
+        const idx = r.players.findIndex(p=>p.id === socket.id);
+        if(idx >= 0){
+          const leavingWasDrawer = (r.players[idx].id === r.drawerId);
+          r.players.splice(idx,1);
+          io.to(rid).emit('playerList', r.players);
+          if(r.hostId === socket.id && r.players[0]) r.hostId = r.players[0].id;
+          if(r.players.length === 0){
+            clearTimeout(r._timer);
+            if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
+            delete rooms[rid];
+          }
         }
       }
     }
   });
+    });
 
   function startTurn(roomId){
     const r = rooms[roomId];
@@ -193,6 +208,8 @@ io.on('connection', (socket)=>{
 
       io.to(roomId).emit('gameOver',{ podium, players: r.players });
       return;
+    }
+
     }
 
     r.phase = 'choose';

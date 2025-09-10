@@ -324,9 +324,11 @@ function postJoin(players){
 function connect(onReady){
   myName = (($('name').value||"").trim());
   const code = (($('code').value||"").trim());
+  const avatar = $('avatar').value;
   if(!myName || !code) return setLoginMsg("Udfyld navn og klassekode.");
 
   socket = io({ autoConnect:false, auth:{ name: myName, classCode: code } });
+  socket = io({ autoConnect:false, auth:{ name: myName, classCode: code, avatar } });
   socket.connect();
 
   socket.on('connect_error', (e)=> setLoginMsg(e && e.message || "Forbindelsesfejl."));

@@ -370,13 +370,9 @@ function connect(onReady){
       drawTimerInt = setInterval(()=>{
         remaining--;
         $('timer').textContent = "Tid tilbage: " + remaining + "s";
-        if(remaining <= 0){ clearInterval(drawTimerInt); drawTimerInt=null; }
-      }, 1000);
-    }
-  });
+     });
 
   socket.on('roundStart', ({drawerName, hint})=>{
-    $('chooseModal').style.display = 'none';  // sikkerhed
     $('phase').textContent = drawerName + " tegner – gæt i chatten! Ord: " + (hint || '');
     const cv=$('canvas'); cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
 
@@ -399,9 +395,12 @@ function connect(onReady){
     clearInterval(chooseTimerInt); chooseTimerInt=null;
     $('timer').textContent = '';
     $('phase').textContent = "Runden sluttede (" + reason + "). Ordet var: " + word;
+    addChat("Ordet var: " + word);
   });
 
   socket.on('hintUpdate', ({hint})=>{
+    const txt = $('phase').textContent;
+    const idx = txt.indexOf("Ord:");
     if(idx >= 0){
       $('phase').textContent = txt.substring(0, idx + 4) + " " + hint;
     }
@@ -421,6 +420,7 @@ function connect(onReady){
       wrap.appendChild(div);
     });
     $('podiumModal').style.display='flex';
+  });
   });
   $('closePodium').onclick = ()=>{ $('podiumModal').style.display='none'; };
 

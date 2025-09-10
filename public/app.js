@@ -8,6 +8,20 @@ let isErasing = false;
 let brushSize = 4;
 
 const $ = (id) => document.getElementById(id);
+function setLoginMsg(msg){
+  $('loginMsg').textContent = msg || '';
+}
+function connect(cb){
+  const name = ($('name').value || '').trim();
+  const avatar = $('avatar').value || '';
+  const code = ($('code').value || '').trim();
+  setLoginMsg('');
+  socket = io({ auth: { name, avatar, classCode: code } });
+  socket.once('connect', () => { cb && cb(); });
+  socket.once('connect_error', (err) => {
+    setLoginMsg(err.message || 'Kunne ikke forbinde.');
+  });
+}
 function addChat(text) {
   const c = $('chat'); const p = document.createElement('div'); p.textContent = text;
   c.appendChild(p); c.scrollTop = c.scrollHeight;
@@ -18,6 +32,21 @@ function renderPlayers(players) {
     const d = document.createElement('div');
     d.className = 'player';
     const info = document.createElement('span');
+    const av = document.createElement('span');
+    av.textContent = p.avatar || '';
+    av.style.marginRight = '6px';
+    const n = document.createElement('span');
+    n.textContent = p.name;
+    info.appendChild(av);
+    info.appendChild(n);
+    const s = document.createElement('span');
+    s.textContent = p.score;
+    d.appendChild(info);
+    d.appendChild(s);
+    box.appendChild(d);
+  });
+}
+;
     const av = document.createElement('span');
     av.textContent = p.avatar || '';
     av.style.marginRight = '6px';

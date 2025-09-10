@@ -118,7 +118,7 @@ io.on('connection', (socket)=>{
       numRounds:1,          // 1 runde = alle tegner én gang
       numRounds:1,          // antal komplette spiller-cyklusser
       roundCounter:0
-    };
+   };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });
   });
@@ -144,6 +144,16 @@ io.on('connection', (socket)=>{
 
   socket.on('startGame',({ roomId })=>{
 @@ -208,72 +208,74 @@ io.on('connection', (socket)=>{
+    const r = rooms[roomId];
+    if(!r || r.hostId !== socket.id) return;
+
+    r.turnIdx = Math.floor(Math.random()*r.players.length);
+    r.roundCounter = 0;
+    r.players.forEach(p=>p.score=0);
+    io.to(roomId).emit('playerList', r.players);
+
+    startTurn(roomId);
+  });
 
   socket.on('disconnect', ()=>{
     for(const [rid,r] of Object.entries(rooms)){

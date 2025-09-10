@@ -15,14 +15,21 @@ function addChat(text) {
 function renderPlayers(players) {
   const box = $('players'); box.innerHTML = "";
   players.forEach(p => {
-    const d = document.createElement('div'); d.className = 'player';
+    const d = document.createElement('div');
+    d.className = 'player';
     const info = document.createElement('span');
-    const av = document.createElement('span'); av.textContent = p.avatar || ''; av.style.marginRight = '6px';
-    const n = document.createElement('span'); n.textContent = p.name;
-    info.appendChild(av); info.appendChild(n);
-    const s = document.createElement('span'); s.textContent = p.score;
-    d.appendChild(n); d.appendChild(s); box.appendChild(d);
-    d.appendChild(info); d.appendChild(s); box.appendChild(d);
+    const av = document.createElement('span');
+    av.textContent = p.avatar || '';
+    av.style.marginRight = '6px';
+    const n = document.createElement('span');
+    n.textContent = p.name;
+    info.appendChild(av);
+    info.appendChild(n);
+    const s = document.createElement('span');
+    s.textContent = p.score;
+    d.appendChild(info);
+    d.appendChild(s);
+    box.appendChild(d);
   });
 }
 
@@ -239,7 +246,6 @@ function connect(onReady){
         remaining--;
         $('timer').textContent = "Tid tilbage: " + remaining + "s";
      });
-
   socket.on('roundStart', ({drawerName, hint})=>{
     $('phase').textContent = drawerName + " tegner – gæt i chatten! Ord: " + (hint || '');
     const cv=$('canvas'); cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
@@ -324,3 +330,4 @@ window.addEventListener('DOMContentLoaded', ()=>{
   $('code').addEventListener('keydown', e=>{ if(e.key==='Enter'){ $('btnCreate').click(); } });
   $('roomIn').addEventListener('keydown', e=>{ if(e.key==='Enter'){ $('btnJoin').click(); } });
 });
+

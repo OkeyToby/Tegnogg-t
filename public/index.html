@@ -327,7 +327,7 @@ function connect(onReady){
 
   socket.on('chooseWordFree', ({maxLen, chooseTime})=>{
     const modal = $('chooseModal');
-    const fw = $('freeWord');
+     const fw = $('freeWord');
     const submit = $('submitWord');
     const cancel = $('cancelWord');
 
@@ -353,6 +353,8 @@ function connect(onReady){
       $('timer').textContent = "Tid til ordvalg: " + remaining + "s";
       if(remaining <= 0){
         clearInterval(chooseTimerInt);
+        clearInterval(chooseTimerInt); chooseTimerInt = null;
+        modal.style.display = 'none';   // luk modal
       }
     }, 1000);
   });
@@ -373,6 +375,7 @@ function connect(onReady){
   });
 
   socket.on('roundStart', ({drawerName, hint})=>{
+    $('chooseModal').style.display = 'none';  // sikkerhed
     $('phase').textContent = drawerName + " tegner – gæt i chatten! Ord: " + (hint || '');
     const cv=$('canvas'); cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
 
@@ -398,8 +401,6 @@ function connect(onReady){
   });
 
   socket.on('hintUpdate', ({hint})=>{
-    const txt = $('phase').textContent;
-    const idx = txt.indexOf("Ord:");
     if(idx >= 0){
       $('phase').textContent = txt.substring(0, idx + 4) + " " + hint;
     }

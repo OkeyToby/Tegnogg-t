@@ -89,7 +89,7 @@ function beginDraw(roomId){
 
 io.use((socket,next)=>{
   const auth = socket.handshake.auth || {};
-  the name = (auth.name || "").trim();
+  const name = (auth.name || "").trim();
   const code = (auth.classCode || "").trim();
   const avatar = auth.avatar || "";
   if(!name) return next(new Error("Navn mangler."));

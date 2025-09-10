@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tilmelding til spil</title>
+    <!--
+      Denne side viser en avanceret login-/tilmeldingsformular til et klasse-/holdspil.
+      Den understøtter tale-til-tekst via Web Speech API (taleindspilningsknap),
+      tekst-til-tale (læseknap) og en dysleksi-tilstand med større bogstavmellemrum
+      og mere kontrast. Desuden kan brugere vælge seje avatars (billeder) eller emojis.
+    -->
+    <style>
+      :root {
+        --bg1: #0f172a;
+        --bg2: #0e1431;
+        --card-bg: rgba(17, 24, 39, 0.85);
+        --border: rgba(255, 255, 255, 0.1);
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --primary: #7c3aed;
+        --primary-dark: #5b21b6;
+        --accent: #22d3ee;
+        --error: #ef4444;
+        --shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter,
+          "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: linear-gradient(180deg, var(--bg1), var(--bg2)) fixed;
+        color: var(--text);
+      }
+      /* dysleksi-tilstand */
+      body.dyslexia {
+        letter-spacing: 0.05em;
+        line-height: 1.5;
+      }
+      body.dyslexia .card {
+        background: rgba(255, 255, 255, 0.12);
+        color: #020617;
+      }
+      body.dyslexia .card input {
+        background: rgba(255, 255, 255, 0.2);
+        color: #020617;
+      }
+      body.dyslexia .card button.primary {
+        background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+        color: #fff;
+      }
+
+      /* farverige pletter */
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        z-index: -1;
+        width: 70vmax;
+        height: 70vmax;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.3;
+      }
+      body::before {
+        top: -20vmax;
+        left: -15vmax;
+        background: radial-gradient(circle at center, var(--primary), transparent 70%);
+      }
+      body::after {
+        bottom: -15vmax;
+        right: -20vmax;
+        background: radial-gradient(circle at center, var(--accent), transparent 70%);
+      }
+
+      .container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 2rem;
+      }
+      .card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 2rem;
+        width: min(600px, 100%);
+        backdrop-filter: blur(12px);
+        box-shadow: var(--shadow);
+      }
+      h1 {
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        font-size: 1.8rem;
+      }
+      p.lead {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+      label {
+        display: block;
+        margin-top: 1rem;
+        margin-bottom: 0.3rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 0.8rem 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(12, 18, 32, 0.6);
+        color: var(--text);
+        font-size: 1rem;
+      }
+      input[type="text"]::placeholder {
+        color: rgba(148, 163, 184, 0.6);
+      }
+      .input-row {
+        position: relative;
+      }
+      .mic-btn {
+        position: absolute;
+        right: 0.4rem;
+        top: 0.4rem;
+        width: 2.2rem;
+        height: 2.2rem;
+        border-radius: 8px;
+        border: none;
+        background: rgba(34, 211, 238, 0.2);
+        color: var(--accent);
+        cursor: pointer;
+        font-size: 1.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .mic-btn:hover {
+        background: rgba(34, 211, 238, 0.3);
+      }
+      .avatars {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      .avatar {
+        position: relative;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        cursor: pointer;
+        overflow: hidden;
+        height: 60px;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .avatar.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.5);
+      }
+      .avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .avatar span {
+        font-size: 1.6rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+      }
+      .actions {
+        margin-top: 1.5rem;
+        display: flex;
+        gap: 0.8rem;
+        flex-wrap: wrap;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        padding: 0.8rem 1.2rem;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+        border: none;
+      }
+      .btn.primary {
+        background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+        color: #fff;
+      }
+      .btn.secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .error {
+        color: var(--error);
+        margin-top: 0.5rem;
+        min-height: 1.2em;
+        font-weight: 600;
+      }
+      /* Dysleksi toggle */
+      .toggle-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+      .toggle-bar button {
+        background: rgba(148, 163, 184, 0.2);
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1rem;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .toggle-bar button:active {
+        transform: translateY(1px);
+      }
+      pre {
+        background: rgba(0, 0, 0, 0.4);
+        padding: 1rem;
+        border-radius: 12px;
+        overflow-x: auto;
+        margin-top: 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <!-- Dysleksi tilstand og oplæsning -->
+        <div class="toggle-bar">
+          <button id="dyslexiaBtn" title="Skift dysleksi-tilstand">Dysleksi-tilstand</button>
+          <button id="speakBtn" title="Lyt til instruktioner">🔈 Lyt</button>
+        </div>
+
+        <h1>Tilmeld dig spillet</h1>
+        <p class="lead">Skriv dit navn, vælg en avatar og indtast din holdkode. Du kan også bruge mikrofonen til at indtale holdkoden.</p>
+        <form id="login-form" onsubmit="return false;">
+          <label for="playerName">Navn</label>
+          <input id="playerName" type="text" placeholder="Skriv dit navn…" autocomplete="nickname" maxlength="32" />
+          <label for="teamCode">Holdkode</label>
+          <div class="input-row">
+            <input id="teamCode" type="text" placeholder="F.eks. 6A-quiz" autocomplete="off" maxlength="24" />
+            <button type="button" class="mic-btn" id="micBtn">🎤</button>
+          </div>
+          <label>Avatar</label>
+          <div class="avatars" id="avatarGrid">
+            <!-- Avatars will be injected here -->
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="loginBtn">Log på</button>
+            <button type="button" class="btn secondary" id="randomBtn">Tilfældig</button>
+          </div>
+          <div id="errorMsg" class="error"></div>
+        </form>
+        <div id="lobby-view" style="display:none;">
+          <h2 id="greeting">Hej!</h2>
+          <div id="teamBadge" style="margin-bottom:0.5rem; font-weight:700;"></div>
+          <div id="avatarBadge" style="width:80px;height:80px;border-radius:16px;overflow:hidden;margin-bottom:1rem;"></div>
+          <pre id="playerData"></pre>
+          <div class="actions">
+            <button type="button" class="btn secondary" id="backBtn">Tilbage</button>
+            <button type="button" class="btn primary" id="copyBtn">Kopiér data</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      (() => {
+        // Avatars list (local images + some emojis as fallbacks)
+        const avatarDefs = [
+          { type: 'img', src: 'assets/avatar1.png' },
+          { type: 'img', src: 'assets/avatar2.png' },
+          { type: 'img', src: 'assets/avatar3.png' },
+          { type: 'img', src: 'assets/avatar4.png' },
+          { type: 'emoji', char: '🦊' },
+          { type: 'emoji', char: '🐸' },
+          { type: 'emoji', char: '🐼' },
+          { type: 'emoji', char: '🎮' }
+        ];
+        const state = { name: '', team: '', avatar: avatarDefs[0] };
+        const avatarGrid = document.getElementById('avatarGrid');
+        avatarDefs.forEach((av, idx) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'avatar';
+          btn.dataset.idx = idx;
+          if (av.type === 'img') {
+            const img = document.createElement('img');
+            img.src = av.src;
+            img.alt = 'Avatar';
+            btn.appendChild(img);
+          } else {
+            const span = document.createElement('span');
+            span.textContent = av.char;
+            btn.appendChild(span);
+          }
+          btn.addEventListener('click', () => selectAvatar(idx));
+          avatarGrid.appendChild(btn);
+        });
+        // select first
+        avatarGrid.firstElementChild.classList.add('selected');
+        function selectAvatar(idx) {
+          document.querySelectorAll('.avatar').forEach(b => b.classList.remove('selected'));
+          const btn = avatarGrid.children[idx];
+          btn.classList.add('selected');
+          state.avatar = avatarDefs[idx];
+        }
+        // Dysleksi toggle
+        const dyslexiaBtn = document.getElementById('dyslexiaBtn');
+        dyslexiaBtn.addEventListener('click', () => {
+          document.body.classList.toggle('dyslexia');
+        });
+        // Speak instructions
+        const speakBtn = document.getElementById('speakBtn');
+        speakBtn.addEventListener('click', () => {
+          const txt = 'Skriv dit navn, vælg en avatar og indtast din holdkode.';
+          const utter = new SpeechSynthesisUtterance(txt);
+          utter.lang = 'da-DK';
+          speechSynthesis.speak(utter);
+        });
+        // Mic / speech recognition for team code
+        const micBtn = document.getElementById('micBtn');
+        const teamInput = document.getElementById('teamCode');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        if (SpeechRecognition) {
+          recognition = new SpeechRecognition();
+          recognition.lang = 'da-DK';
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
+          recognition.onresult = (event) => {
+            const spoken = event.results[0][0].transcript;
+            teamInput.value = spoken.trim();
+          };
+        }
+        micBtn.addEventListener('click', () => {
+          if (!recognition) return;
+          recognition.start();
+        });
+        // Random fill
+        document.getElementById('randomBtn').addEventListener('click', () => {
+          const names = ['Oliver','Signe','Anton','Ella','Liva','Noah','Ida','Mona','Karl'];
+          document.getElementById('playerName').value = names[Math.floor(Math.random() * names.length)];
+          const codes = ['6A-quiz','QZ2025','BETA','ALFA'];
+          teamInput.value = codes[Math.floor(Math.random() * codes.length)];
+          const r = Math.floor(Math.random() * avatarDefs.length);
+          selectAvatar(r);
+        });
+        // Login submit
+        document.getElementById('loginBtn').addEventListener('click', onLogin);
+        document.getElementById('login-form').addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onLogin();
+          }
+        });
+        function onLogin() {
+          const name = document.getElementById('playerName').value.trim();
+          const team = teamInput.value.trim();
+          const errs = [];
+          if (name.length < 2) errs.push('Navnet skal være mindst 2 tegn.');
+          if (team.length < 2) errs.push('Holdkoden skal være mindst 2 tegn.');
+          document.getElementById('errorMsg').textContent = errs.join(' ');
+          if (errs.length) return;
+          state.name = name;
+          state.team = team;
+          try {
+            localStorage.setItem('game_login_plus_stt', JSON.stringify(state));
+          } catch (e) {}
+          showLobby();
+        }
+        function showLobby() {
+          document.getElementById('login-form').style.display = 'none';
+          document.getElementById('lobby-view').style.display = '';
+          document.getElementById('greeting').textContent = 'Hej ' + state.name + '!';
+          document.getElementById('teamBadge').textContent = 'Hold: ' + state.team;
+          const avatarBadge = document.getElementById('avatarBadge');
+          avatarBadge.innerHTML = '';
+          if (state.avatar.type === 'img') {
+            const img = document.createElement('img');
+            img.src = state.avatar.src;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            avatarBadge.appendChild(img);
+          } else {
+            avatarBadge.textContent = state.avatar.char;
+            avatarBadge.style.fontSize = '3rem';
+            avatarBadge.style.display = 'flex';
+            avatarBadge.style.alignItems = 'center';
+            avatarBadge.style.justifyContent = 'center';
+          }
+          const data = {
+            name: state.name,
+            team: state.team,
+            avatar: state.avatar.type === 'img' ? state.avatar.src : state.avatar.char,
+            at: new Date().toISOString(),
+          };
+          window.Player = data;
+          document.getElementById('playerData').textContent = JSON.stringify(data, null, 2);
+        }
+        document.getElementById('backBtn').addEventListener('click', () => {
+          document.getElementById('login-form').style.display = '';
+          document.getElementById('lobby-view').style.display = 'none';
+          document.getElementById('errorMsg').textContent = '';
+        });
+        document.getElementById('copyBtn').addEventListener('click', () => {
+          const txt = document.getElementById('playerData').textContent;
+          navigator.clipboard.writeText(txt).then(() => {
+            toast('Data kopieret');
+          }).catch(() => {
+            toast('Kunne ikke kopiere');
+          });
+        });
+        // Toast helper
+        function toast(msg) {
+          const el = document.createElement('div');
+          el.textContent = msg;
+          Object.assign(el.style, {
+            position: 'fixed', bottom: '20px', right: '20px', background: 'rgba(0,0,0,0.85)',
+            color: '#fff', padding: '8px 12px', borderRadius: '8px', zIndex: 1000
+          });
+          document.body.appendChild(el);
+          setTimeout(() => el.remove(), 2000);
+        }
+        // Auto-login from storage
+        try {
+          const saved = JSON.parse(localStorage.getItem('game_login_plus_stt'));
+          if (saved && saved.name && saved.team) {
+            state.name = saved.name;
+            state.team = saved.team;
+            // find avatar definition by comparing src/char
+            const idx = avatarDefs.findIndex(av => (av.type === 'img' ? av.src === saved.avatar : av.char === saved.avatar));
+            if (idx >= 0) selectAvatar(idx);
+            showLobby();
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </body>
+</html>

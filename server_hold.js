@@ -112,8 +112,8 @@ io.on('connection', (socket)=>{
       drawerId:null,
       guessed:new Set(),
       _timer:null,
-      hintTimers[],
-      revealedIndices[],
+      hintTimers:[],
+      revealedIndices:[],
       numRounds:1,
       roundCounter:0
     };
@@ -149,6 +149,16 @@ io.on('connection', (socket)=>{
     io.to(roomId).emit('playerList', r.players);
 
     startTurn(roomId);
+  });
+
+  socket.on('submitWord', ({ roomId, word }) => {
+    const r = rooms[roomId];
+    if(!r || r.drawerId !== socket.id || r.phase !== 'choose') return;
+    const w = (word || '').trim();
+    if(!w || w.length > 20) return;
+    r.word = w.toLowerCase();
+    clearTimeout(r._timer);
+    beginDraw(roomId);
   });
 
   socket.on('disconnect', ()=>{

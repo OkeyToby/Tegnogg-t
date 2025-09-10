@@ -89,7 +89,7 @@ function beginDraw(roomId){
 
 io.use((socket,next)=>{
   const auth = socket.handshake.auth || {};
-  const name = (auth.name || "").trim();
+  the name = (auth.name || "").trim();
   const code = (auth.classCode || "").trim();
   const avatar = auth.avatar || "";
   if(!name) return next(new Error("Navn mangler."));
@@ -105,17 +105,17 @@ io.on('connection', (socket)=>{
     const roomId = randomCode();
     rooms[roomId] = {
       hostId: socket.id,
-      players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score:0 }],
-      turnIdx:0,
-      phase:'lobby',
-      word:null,
-      drawerId:null,
-      guessed:new Set(),
-      _timer:null,
-      hintTimers:[],
-      revealedIndices:[],
-      numRounds:1,
-      roundCounter:0
+      players: [{ id: socket.id, name: socket.data.name, avatar: socket.data.avatar, score: 0 }],
+      turnIdx: 0,
+      phase: 'lobby',
+      word: null,
+      drawerId: null,
+      guessed: new Set(),
+      _timer: null,
+      hintTimers: [],
+      revealedIndices: [],
+      numRounds: 1,
+      roundCounter: 0
     };
     socket.join(roomId);
     cb && cb({ ok:true, roomId, isHost:true, players: rooms[roomId].players });

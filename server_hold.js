@@ -113,6 +113,7 @@ io.on('connection', (socket)=>{
       hintTimers:[],
       revealedIndices:[],
       numRounds:1,          // 1 runde = alle tegner én gang
+      numRounds:1,          // antal komplette spiller-cyklusser
       roundCounter:0
     };
     socket.join(roomId);
@@ -138,73 +139,7 @@ io.on('connection', (socket)=>{
   });
 
   socket.on('startGame',({ roomId })=>{
-    const r = rooms[roomId];
-    if(!r || r.hostId !== socket.id) return;
-    r.turnIdx = 0;
-    r.roundCounter = 0;
-    r.players.forEach(p=>p.score=0); // nulstil point ved ny start
-    startTurn(roomId);
-  });
-
-  socket.on('restartGame',({ roomId })=>{
-    const r = rooms[roomId];
-    if(!r || r.hostId !== socket.id) return;
-    clearTimeout(r._timer);
-    if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
-    r.turnIdx = 0;
-    r.roundCounter = 0;
-    r.phase='lobby';
-    r.word=null;
-    r.drawerId=null;
-    r.revealedIndices=[];
-    r.guessed=new Set();
-    r.players.forEach(p=>p.score=0);
-    io.to(roomId).emit('playerList', r.players);
-    startTurn(roomId);
-  });
-
-  socket.on('wordChosen',({ roomId, word })=>{
-    const r = rooms[roomId];
-    if(!r || socket.id !== r.drawerId || r.phase !== 'choose') return;
-    const chosen = (word || "").trim().toLowerCase();
-    if(!chosen) return;
-    r.word = chosen;
-    beginDraw(roomId);
-  });
-
-  socket.on('guess',({ roomId, msg })=>{
-    const r = rooms[roomId];
-    if(!r || r.phase !== 'draw') return;
-    if(socket.id === r.drawerId) return; // tegneren gætter ikke
-    const player = r.players.find(p => p.id === socket.id);
-    if(!player) return;
-    const guess = (msg || "").trim().toLowerCase();
-    if(!guess) return;
-
-    if(guess === r.word && !r.guessed.has(socket.id)){
-      // faldende point: 10,8,6,4,2... (min 2)
-      const k = r.guessed.size; // 0 for første rigtige, 1 for anden, ...
-      const delta = Math.max(2, 10 - 2*k);
-      r.guessed.add(socket.id);
-      player.score += delta;
-
-      io.to(roomId).emit('chat',{ from: player.name, msg:`gættede rigtigt! (+${delta})` });
-      io.to(roomId).emit('playerList', r.players);
-
-      const nonDrawerIds = r.players.filter(p=>p.id !== r.drawerId).map(p=>p.id);
-      if(nonDrawerIds.length > 0 && nonDrawerIds.every(id => r.guessed.has(id))){
-        endRound(roomId,"all-guessed");
-      }
-    } else {
-      io.to(roomId).emit('chat',{ from: player.name, msg });
-    }
-  });
-
-  socket.on('drawStroke',({ roomId, stroke })=>{
-    const r = rooms[roomId];
-    if(!r || r.phase !== 'draw' || socket.id !== r.drawerId) return;
-    socket.to(roomId).emit('drawStroke', stroke);
-  });
+@@ -208,72 +208,74 @@ io.on('connection', (socket)=>{
 
   socket.on('disconnect', ()=>{
     for(const [rid,r] of Object.entries(rooms)){
@@ -232,6 +167,9 @@ io.on('connection', (socket)=>{
 
     // Spil slut? (numRounds * antal spillere) ture gennemført
     if(r.numRounds && r.roundCounter >= r.numRounds * r.players.length){
+    // Spil slut? Alle har tegnet `numRounds` gange.
+    const totalTurns = r.numRounds * r.players.length;
+    if(r.numRounds && r.roundCounter >= totalTurns){
       clearTimeout(r._timer);
       if(r.hintTimers) r.hintTimers.forEach(t=>clearTimeout(t));
       r.phase = 'ended';
@@ -268,6 +206,8 @@ io.on('connection', (socket)=>{
     io.to(roomId).emit('roundEnd',{ reason, word: r.word });
     r.turnIdx = (r.turnIdx + 1) % r.players.length;
     r.roundCounter = (r.roundCounter || 0) + 1;
+    // Registrer én afsluttet tegnerunde
+    r.roundCounter += 1;
     r._timer = setTimeout(()=>startTurn(roomId), 1500);
   }
 });

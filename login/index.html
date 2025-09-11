@@ -1,462 +1,305 @@
 <!DOCTYPE html>
 <html lang="da">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tilmelding til spil</title>
-    <!--
-      Denne side viser en avanceret login-/tilmeldingsformular til et klasse-/holdspil.
-      Den understøtter tale-til-tekst via Web Speech API (taleindspilningsknap),
-      tekst-til-tale (læseknap) og en dysleksi-tilstand med større bogstavmellemrum
-      og mere kontrast. Desuden kan brugere vælge seje avatars (billeder) eller emojis.
-    -->
-    <style>
-      :root {
-        --bg1: #0f172a;
-        --bg2: #0e1431;
-        --card-bg: rgba(17, 24, 39, 0.85);
-        --border: rgba(255, 255, 255, 0.1);
-        --text: #f1f5f9;
-        --muted: #94a3b8;
-        --primary: #7c3aed;
-        --primary-dark: #5b21b6;
-        --accent: #22d3ee;
-        --error: #ef4444;
-        --shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter,
-          "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        background: linear-gradient(180deg, var(--bg1), var(--bg2)) fixed;
-        color: var(--text);
-      }
-      /* dysleksi-tilstand */
-      body.dyslexia {
-        letter-spacing: 0.05em;
-        line-height: 1.5;
-      }
-      body.dyslexia .card {
-        background: rgba(255, 255, 255, 0.12);
-        color: #020617;
-      }
-      body.dyslexia .card input {
-        background: rgba(255, 255, 255, 0.2);
-        color: #020617;
-      }
-      body.dyslexia .card button.primary {
-        background: linear-gradient(180deg, var(--primary), var(--primary-dark));
-        color: #fff;
-      }
-
-      /* farverige pletter */
-      body::before,
-      body::after {
-        content: "";
-        position: fixed;
-        z-index: -1;
-        width: 70vmax;
-        height: 70vmax;
-        border-radius: 50%;
-        filter: blur(80px);
-        opacity: 0.3;
-      }
-      body::before {
-        top: -20vmax;
-        left: -15vmax;
-        background: radial-gradient(circle at center, var(--primary), transparent 70%);
-      }
-      body::after {
-        bottom: -15vmax;
-        right: -20vmax;
-        background: radial-gradient(circle at center, var(--accent), transparent 70%);
-      }
-
-      .container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        padding: 2rem;
-      }
-      .card {
-        background: var(--card-bg);
-        border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 2rem;
-        width: min(600px, 100%);
-        backdrop-filter: blur(12px);
-        box-shadow: var(--shadow);
-      }
-      h1 {
-        margin-top: 0;
-        margin-bottom: 0.5rem;
-        font-size: 1.8rem;
-      }
-      p.lead {
-        margin-top: 0;
-        margin-bottom: 1.5rem;
-        color: var(--muted);
-        font-size: 1rem;
-      }
-      label {
-        display: block;
-        margin-top: 1rem;
-        margin-bottom: 0.3rem;
-        font-weight: 600;
-        color: var(--muted);
-      }
-      input[type="text"] {
-        width: 100%;
-        padding: 0.8rem 1rem;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background: rgba(12, 18, 32, 0.6);
-        color: var(--text);
-        font-size: 1rem;
-      }
-      input[type="text"]::placeholder {
-        color: rgba(148, 163, 184, 0.6);
-      }
-      .input-row {
-        position: relative;
-      }
-      .mic-btn {
-        position: absolute;
-        right: 0.4rem;
-        top: 0.4rem;
-        width: 2.2rem;
-        height: 2.2rem;
-        border-radius: 8px;
-        border: none;
-        background: rgba(34, 211, 238, 0.2);
-        color: var(--accent);
-        cursor: pointer;
-        font-size: 1.2rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .mic-btn:hover {
-        background: rgba(34, 211, 238, 0.3);
-      }
-      .avatars {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-      }
-      .avatar {
-        position: relative;
-        padding: 0;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.05);
-        cursor: pointer;
-        overflow: hidden;
-        height: 60px;
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-      }
-      .avatar.selected {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.5);
-      }
-      .avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-      .avatar span {
-        font-size: 1.6rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-      }
-      .actions {
-        margin-top: 1.5rem;
-        display: flex;
-        gap: 0.8rem;
-        flex-wrap: wrap;
-      }
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        padding: 0.8rem 1.2rem;
-        font-weight: 700;
-        font-size: 1rem;
-        cursor: pointer;
-        transition: transform 0.1s ease;
-        border: none;
-      }
-      .btn.primary {
-        background: linear-gradient(180deg, var(--primary), var(--primary-dark));
-        color: #fff;
-      }
-      .btn.secondary {
-        background: transparent;
-        color: var(--text);
-        border: 1px solid rgba(148, 163, 184, 0.4);
-      }
-      .btn:active {
-        transform: translateY(1px);
-      }
-      .error {
-        color: var(--error);
-        margin-top: 0.5rem;
-        min-height: 1.2em;
-        font-weight: 600;
-      }
-      /* Dysleksi toggle */
-      .toggle-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-      }
-      .toggle-bar button {
-        background: rgba(148, 163, 184, 0.2);
-        border: none;
-        border-radius: 8px;
-        padding: 0.6rem 1rem;
-        color: var(--text);
-        cursor: pointer;
-      }
-      .toggle-bar button:active {
-        transform: translateY(1px);
-      }
-      pre {
-        background: rgba(0, 0, 0, 0.4);
-        padding: 1rem;
-        border-radius: 12px;
-        overflow-x: auto;
-        margin-top: 1rem;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="card">
-        <!-- Dysleksi tilstand og oplæsning -->
-        <div class="toggle-bar">
-          <button id="dyslexiaBtn" title="Skift dysleksi-tilstand">Dysleksi-tilstand</button>
-          <button id="speakBtn" title="Lyt til instruktioner">🔈 Lyt</button>
-        </div>
-
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tilmeld dig spillet</title>
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root{
+      --bg1:#0f172a; --bg2:#111827; --card:#0b1225ee;
+      --muted:#94a3b8; --text:#e5e7eb; --accent:#7c3aed; --accent2:#22d3ee;
+      --ok:#22c55e; --err:#ef4444; --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
+      background: radial-gradient(1200px 800px at 10% -20%, rgba(124,58,237,.35), transparent 60%),
+                  radial-gradient(900px 700px at 110% 10%, rgba(34,211,238,.25), transparent 55%),
+                  linear-gradient(180deg, var(--bg1), var(--bg2));
+      color:var(--text);
+      min-height:100dvh; display:grid; place-items:center; padding:clamp(12px,3vw,28px);
+    }
+    .card{
+      width:min(980px,96vw); border:1px solid rgba(255,255,255,.1); border-radius:var(--radius);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    header{display:flex;align-items:center;gap:12px;padding:18px 24px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .logo{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;font-weight:800;background:conic-gradient(from 180deg,var(--accent),var(--accent2),var(--accent)); color:#0b1020}
+    h1{margin:0;font-size:clamp(20px,2.2vw,28px)}
+    .lead{color:var(--muted);font-size:clamp(14px,1.4vw,16px)}
+    .content{display:grid;grid-template-columns:1.1fr .9fr;gap:22px;padding:22px}
+    @media (max-width:860px){.content{grid-template-columns:1fr}}
+    .panel{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:16px}
+    .section-title{display:flex;align-items:center;gap:10px;margin:0 0 10px 0}
+    .dot{width:8px;height:8px;background:var(--accent);border-radius:999px}
+    label{display:block;color:var(--muted);margin:12px 0 6px}
+    input[type="text"]{width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.35);background:rgba(2,6,23,.6);color:var(--text);outline:none}
+    input::placeholder{color:#8ea0b8}
+    .avatars{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    @media (max-width:620px){.avatars{grid-template-columns:repeat(4,1fr)}}
+    .avatar{aspect-ratio:1/1;display:grid;place-items:center;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);cursor:pointer;font-size:26px}
+    .avatar.selected{outline:2px solid var(--accent2); box-shadow:0 0 0 4px rgba(34,211,238,.25)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{appearance:none;border:0;border-radius:12px;padding:12px 14px;background:linear-gradient(180deg,var(--accent),#5b21b6);color:white;font-weight:700;cursor:pointer}
+    .btn.ghost{background:transparent;border:1px solid rgba(148,163,184,.35)}
+    .help{color:var(--muted);font-size:13px}
+    .errors{color:var(--err);min-height:1.2em;font-weight:700}
+    .divider{height:1px;background:rgba(255,255,255,.08);margin:10px 0}
+    /* Dysleksi-tilstand */
+    .dyslexia body, .dyslexia *{letter-spacing:.03em; line-height:1.6 !important}
+    .toggle{margin-left:auto}
+    /* Lobby & vært */
+    .badge{display:inline-block;padding:6px 10px;border:1px solid rgba(148,163,184,.35);border-radius:999px;background:rgba(255,255,255,.04)}
+    pre{background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.08); padding:12px; border-radius:12px; white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div class="logo">🎮</div>
+      <div>
         <h1>Tilmeld dig spillet</h1>
-        <p class="lead">Skriv dit navn, vælg en avatar og indtast din holdkode. Du kan også bruge mikrofonen til at indtale holdkoden.</p>
-        <form id="login-form" onsubmit="return false;">
-          <label for="playerName">Navn</label>
-          <input id="playerName" type="text" placeholder="Skriv dit navn…" autocomplete="nickname" maxlength="32" />
-          <label for="teamCode">Holdkode</label>
-          <div class="input-row">
-            <input id="teamCode" type="text" placeholder="F.eks. 6A-quiz" autocomplete="off" maxlength="24" />
-            <button type="button" class="mic-btn" id="micBtn">🎤</button>
-          </div>
-          <label>Avatar</label>
-          <div class="avatars" id="avatarGrid">
-            <!-- Avatars will be injected here -->
-          </div>
-          <div class="actions">
-            <button type="button" class="btn primary" id="loginBtn">Log på</button>
-            <button type="button" class="btn secondary" id="randomBtn">Tilfældig</button>
-          </div>
-          <div id="errorMsg" class="error"></div>
-        </form>
-        <div id="lobby-view" style="display:none;">
-          <h2 id="greeting">Hej!</h2>
-          <div id="teamBadge" style="margin-bottom:0.5rem; font-weight:700;"></div>
-          <div id="avatarBadge" style="width:80px;height:80px;border-radius:16px;overflow:hidden;margin-bottom:1rem;"></div>
-          <pre id="playerData"></pre>
-          <div class="actions">
-            <button type="button" class="btn secondary" id="backBtn">Tilbage</button>
-            <button type="button" class="btn primary" id="copyBtn">Kopiér data</button>
-          </div>
-        </div>
+        <div class="lead">Navn + avatar + holdkode. Oplæsning, tale-svar og dysleksi-tilstand indbygget.</div>
       </div>
+      <button id="dysBtn" class="btn ghost toggle" title="Skift dysleksi-tilstand">👁‍🗨 Dys</button>
+    </header>
+
+    <div id="loginView" class="content">
+      <section class="panel">
+        <h2 class="section-title"><span class="dot"></span> 1) Dit navn</h2>
+        <label for="name">Navn</label>
+        <input id="name" type="text" autocomplete="nickname" placeholder="F.eks. Signe, Oliver, Fru Jensen" maxlength="32">
+
+        <h2 class="section-title" style="margin-top:14px"><span class="dot"></span> 2) Vælg en avatar</h2>
+        <div id="avatars" class="avatars"></div>
+        <div class="help">Klik for at vælge. Du kan skifte senere.</div>
+      </section>
+
+      <section class="panel">
+        <h2 class="section-title"><span class="dot"></span> 3) Holdkode</h2>
+        <label for="team">Holdkode</label>
+        <input id="team" type="text" placeholder="F.eks. 6A-quiz" maxlength="18">
+
+        <div class="divider"></div>
+
+        <h2 class="section-title"><span class="dot"></span> Log på / værktøjer</h2>
+        <div class="row">
+          <button class="btn" id="loginBtn">Log på</button>
+          <button class="btn ghost" id="randBtn">Fyld tilfældigt</button>
+          <button class="btn ghost" id="micBtn" title="Tal dit svar/ord">🎤</button>
+          <button class="btn ghost" id="speakBtn" title="Læs tekst højt">🔈</button>
+        </div>
+        <div class="errors" id="errors"></div>
+        <div class="help">Tip: 🎤 indtaler i aktivt felt (fx holdkode/svarfelt). 🔈 læser markeret tekst eller spørgsmål højt.</div>
+      </section>
     </div>
-    <script>
-      (() => {
-        // Avatars list (local images + some emojis as fallbacks)
-        const avatarDefs = [
-          { type: 'img', src: 'assets/avatar1.png' },
-          { type: 'img', src: 'assets/avatar2.png' },
-          { type: 'img', src: 'assets/avatar3.png' },
-          { type: 'img', src: 'assets/avatar4.png' },
-          { type: 'emoji', char: '🦊' },
-          { type: 'emoji', char: '🐸' },
-          { type: 'emoji', char: '🐼' },
-          { type: 'emoji', char: '🎮' }
-        ];
-        const state = { name: '', team: '', avatar: avatarDefs[0] };
-        const avatarGrid = document.getElementById('avatarGrid');
-        avatarDefs.forEach((av, idx) => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'avatar';
-          btn.dataset.idx = idx;
-          if (av.type === 'img') {
-            const img = document.createElement('img');
-            img.src = av.src;
-            img.alt = 'Avatar';
-            btn.appendChild(img);
-          } else {
-            const span = document.createElement('span');
-            span.textContent = av.char;
-            btn.appendChild(span);
-          }
-          btn.addEventListener('click', () => selectAvatar(idx));
-          avatarGrid.appendChild(btn);
+
+    <div id="lobbyView" class="content" style="display:none">
+      <section class="panel">
+        <h2 class="section-title"><span class="dot"></span> Lobby</h2>
+        <div class="row" style="margin-bottom:8px">
+          <div class="badge" id="hello">Hej, spiller!</div>
+          <div class="badge" id="teamBadge">Hold: —</div>
+        </div>
+        <div class="divider"></div>
+
+        <h3>Vært / Opret spil</h3>
+        <div class="row" style="margin:8px 0">
+          <button class="btn" id="hostCreateBtn">Opret spil</button>
+          <input id="hostCode" type="text" placeholder="Rumkode" readonly style="max-width:120px">
+          <input id="hostKey" type="text" placeholder="Værtsnøgle" readonly style="max-width:220px">
+          <button class="btn ghost" id="hostStartBtn" disabled>Start spil</button>
+        </div>
+        <div class="help">Del kun <b>rumkoden</b> med klassen. <b>Værtsnøglen</b> er kun til dig.</div>
+
+        <div class="divider"></div>
+        <h3>Data</h3>
+        <pre id="exportBlock" class="mono"></pre>
+      </section>
+
+      <section class="panel">
+        <h2 class="section-title"><span class="dot"></span> Live</h2>
+        <div class="help">Tilsluttede spillere og beskeder fra serveren (Socket.IO)</div>
+        <ul id="events" style="margin:8px 0 0 16px; padding:0 0 0 12px"></ul>
+      </section>
+    </div>
+
+    <footer style="padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);color:var(--muted)">
+      Bygget til undervisning – hurtigt login, talehjælp og værtsværktøjer. Ingen passwords, ingen bøvl.
+    </footer>
+  </div>
+
+  <script>
+    // ===== KONFIGURATION =====
+    // Sæt denne URL, når serveren er deployet på Render (se server.js og package.json nedenfor)
+    const SERVER_URL = "https://tobytegn-server.onrender.com"; // ← SKIFT når du har deployet
+
+    // ===== AVATARER =====
+    const AVATARS = ["🦊","🤖","🧙","🦄","🐱","🐸","🐼","🦁","🐵","🐢","🎸","🎮","⚡","🔥","⭐","🌙","🌈","🐝","🦉","🐳","🥁","⚽","🏀","🧠"];
+    const $ = (s)=>document.querySelector(s), $$ = (s)=>Array.from(document.querySelectorAll(s));
+    const grid = $("#avatars");
+    AVATARS.forEach((emoji,i)=>{
+      const b = document.createElement("button");
+      b.className = "avatar"; b.type = "button"; b.textContent = emoji;
+      b.addEventListener("click", ()=> selectAvatar(b, emoji)); grid.appendChild(b);
+    });
+    function selectAvatar(el, emoji){
+      $$(".avatar").forEach(a=>a.classList.remove("selected"));
+      el.classList.add("selected"); state.avatar = emoji;
+    }
+    // forhåndsvælg første
+    setTimeout(()=> grid.children[0]?.classList.add("selected"), 0);
+
+    // ===== STATE =====
+    const state = { name:"", avatar:AVATARS[0], team:"", playerId:null, hostCode:null, hostKey:null };
+
+    // ===== LOGIN FLOW =====
+    $("#randBtn").onclick = ()=>{
+      $("#name").value = sample(["Signe","Oliver","Anton","Mona","Kian","Fatma","Liva","Noah","Sofia"]);
+      $("#team").value = sample(["6A-quiz","QZ-2025","HOLD-ALFA","B3"]);
+      const i = Math.floor(Math.random()*AVATARS.length); selectAvatar(grid.children[i], AVATARS[i]);
+    };
+
+    $("#loginBtn").onclick = async ()=>{
+      const errs = [];
+      const name = ($("#name").value||"").trim();
+      const team = ($("#team").value||"").trim();
+      if(name.length<2) errs.push("Navn skal være mindst 2 tegn.");
+      if(team.length<2) errs.push("Holdkode skal være mindst 2 tegn.");
+      if(!AVATARS.includes(state.avatar)) errs.push("Vælg en avatar.");
+      $("#errors").textContent = errs.join(" "); if(errs.length) return;
+
+      state.name = name; state.team = team;
+      localStorage.setItem("spil_login_v2", JSON.stringify({name,team,avatar:state.avatar}));
+      showLobby();
+
+      // Forsøg at join'e rummet på serveren (hvis det findes)
+      try {
+        const r = await fetch(`${SERVER_URL}/api/rooms/${team}/join`, {
+          method:"POST", headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ name, avatar: state.avatar })
         });
-        // select first
-        avatarGrid.firstElementChild.classList.add('selected');
-        function selectAvatar(idx) {
-          document.querySelectorAll('.avatar').forEach(b => b.classList.remove('selected'));
-          const btn = avatarGrid.children[idx];
-          btn.classList.add('selected');
-          state.avatar = avatarDefs[idx];
+        if(r.ok){
+          const data = await r.json();
+          state.playerId = data.playerId || null;
+          joinSocketRoom(team);
+          pushEvent(`Joinet server-rum ${team} som ${name} ${state.avatar}`);
+        } else {
+          pushEvent(`Kunne ikke join'e server-rum ${team} (det findes måske ikke endnu).`);
         }
-        // Dysleksi toggle
-        const dyslexiaBtn = document.getElementById('dyslexiaBtn');
-        dyslexiaBtn.addEventListener('click', () => {
-          document.body.classList.toggle('dyslexia');
+      } catch {
+        pushEvent("Ingen serverforbindelse (backend endnu ikke oprettet).");
+      }
+    };
+
+    function showLobby(){
+      $("#loginView").style.display = "none";
+      $("#lobbyView").style.display = "grid";
+      $("#hello").textContent = `Hej ${state.name}!`;
+      $("#teamBadge").textContent = `Hold: ${state.team}`;
+      const payload = { name:state.name, avatar:state.avatar, team:state.team, at:new Date().toISOString() };
+      window.Player = payload;
+      $("#exportBlock").textContent = JSON.stringify({ ...payload, playerId: state.playerId }, null, 2);
+    }
+
+    // ===== VÆRT / OPRET SPIL =====
+    $("#hostCreateBtn").onclick = async ()=>{
+      try{
+        const r = await fetch(`${SERVER_URL}/api/rooms`, { method:"POST" });
+        if(!r.ok) throw new Error("Kunne ikke oprette spil");
+        const { code, hostKey } = await r.json();
+        state.hostCode = code; state.hostKey = hostKey;
+        $("#hostCode").value = code; $("#hostKey").value = hostKey;
+        $("#hostStartBtn").disabled = false;
+        joinSocketRoom(code); // så værten ser live-join
+        pushEvent(`Oprettet rum ${code} (værtsnøgle gemt)`);
+      }catch(e){ alert(e.message || "Fejl ved oprettelse af spil"); }
+    };
+
+    $("#hostStartBtn").onclick = async ()=>{
+      if(!state.hostCode || !state.hostKey) return;
+      const r = await fetch(`${SERVER_URL}/api/rooms/${state.hostCode}/start`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ hostKey: state.hostKey })
+      });
+      if(r.ok){ toast("Spillet er startet!"); }
+      else{ alert("Kunne ikke starte spillet."); }
+    };
+
+    // ===== SOCKET.IO KLIENT =====
+    let socket;
+    function joinSocketRoom(code){
+      const ensure = ()=> new Promise(res=>{
+        if(window.io) return res();
+        const s = document.createElement("script");
+        s.src = "https://cdn.socket.io/4.7.5/socket.io.min.js";
+        s.onload = ()=>res(); document.head.appendChild(s);
+      });
+      ensure().then(()=>{
+        if(!socket) socket = io(SERVER_URL, { transports:["websocket"] });
+        socket.emit("join-room", { code });
+        socket.on("player-joined", ({ name, avatar, count })=>{
+          pushEvent(`➕ ${name} ${avatar} er med (${count})`);
         });
-        // Speak instructions
-        const speakBtn = document.getElementById('speakBtn');
-        speakBtn.addEventListener('click', () => {
-          const txt = 'Skriv dit navn, vælg en avatar og indtast din holdkode.';
-          const utter = new SpeechSynthesisUtterance(txt);
-          utter.lang = 'da-DK';
-          speechSynthesis.speak(utter);
+        socket.on("game-started", ()=> pushEvent("🚀 Spillet er i gang!"));
+        socket.on("score-update", ({ playerId, score })=>{
+          pushEvent(`🏅 ${playerId} → ${score}`);
         });
-        // Mic / speech recognition for team code
-        const micBtn = document.getElementById('micBtn');
-        const teamInput = document.getElementById('teamCode');
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let recognition;
-        if (SpeechRecognition) {
-          recognition = new SpeechRecognition();
-          recognition.lang = 'da-DK';
-          recognition.interimResults = false;
-          recognition.maxAlternatives = 1;
-          recognition.onresult = (event) => {
-            const spoken = event.results[0][0].transcript;
-            teamInput.value = spoken.trim();
-          };
-        }
-        micBtn.addEventListener('click', () => {
-          if (!recognition) return;
-          recognition.start();
-        });
-        // Random fill
-        document.getElementById('randomBtn').addEventListener('click', () => {
-          const names = ['Oliver','Signe','Anton','Ella','Liva','Noah','Ida','Mona','Karl'];
-          document.getElementById('playerName').value = names[Math.floor(Math.random() * names.length)];
-          const codes = ['6A-quiz','QZ2025','BETA','ALFA'];
-          teamInput.value = codes[Math.floor(Math.random() * codes.length)];
-          const r = Math.floor(Math.random() * avatarDefs.length);
-          selectAvatar(r);
-        });
-        // Login submit
-        document.getElementById('loginBtn').addEventListener('click', onLogin);
-        document.getElementById('login-form').addEventListener('keypress', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            onLogin();
-          }
-        });
-        function onLogin() {
-          const name = document.getElementById('playerName').value.trim();
-          const team = teamInput.value.trim();
-          const errs = [];
-          if (name.length < 2) errs.push('Navnet skal være mindst 2 tegn.');
-          if (team.length < 2) errs.push('Holdkoden skal være mindst 2 tegn.');
-          document.getElementById('errorMsg').textContent = errs.join(' ');
-          if (errs.length) return;
-          state.name = name;
-          state.team = team;
-          try {
-            localStorage.setItem('game_login_plus_stt', JSON.stringify(state));
-          } catch (e) {}
-          showLobby();
-        }
-        function showLobby() {
-          document.getElementById('login-form').style.display = 'none';
-          document.getElementById('lobby-view').style.display = '';
-          document.getElementById('greeting').textContent = 'Hej ' + state.name + '!';
-          document.getElementById('teamBadge').textContent = 'Hold: ' + state.team;
-          const avatarBadge = document.getElementById('avatarBadge');
-          avatarBadge.innerHTML = '';
-          if (state.avatar.type === 'img') {
-            const img = document.createElement('img');
-            img.src = state.avatar.src;
-            img.style.width = '100%';
-            img.style.height = '100%';
-            img.style.objectFit = 'cover';
-            avatarBadge.appendChild(img);
-          } else {
-            avatarBadge.textContent = state.avatar.char;
-            avatarBadge.style.fontSize = '3rem';
-            avatarBadge.style.display = 'flex';
-            avatarBadge.style.alignItems = 'center';
-            avatarBadge.style.justifyContent = 'center';
-          }
-          const data = {
-            name: state.name,
-            team: state.team,
-            avatar: state.avatar.type === 'img' ? state.avatar.src : state.avatar.char,
-            at: new Date().toISOString(),
-          };
-          window.Player = data;
-          document.getElementById('playerData').textContent = JSON.stringify(data, null, 2);
-        }
-        document.getElementById('backBtn').addEventListener('click', () => {
-          document.getElementById('login-form').style.display = '';
-          document.getElementById('lobby-view').style.display = 'none';
-          document.getElementById('errorMsg').textContent = '';
-        });
-        document.getElementById('copyBtn').addEventListener('click', () => {
-          const txt = document.getElementById('playerData').textContent;
-          navigator.clipboard.writeText(txt).then(() => {
-            toast('Data kopieret');
-          }).catch(() => {
-            toast('Kunne ikke kopiere');
-          });
-        });
-        // Toast helper
-        function toast(msg) {
-          const el = document.createElement('div');
-          el.textContent = msg;
-          Object.assign(el.style, {
-            position: 'fixed', bottom: '20px', right: '20px', background: 'rgba(0,0,0,0.85)',
-            color: '#fff', padding: '8px 12px', borderRadius: '8px', zIndex: 1000
-          });
-          document.body.appendChild(el);
-          setTimeout(() => el.remove(), 2000);
-        }
-        // Auto-login from storage
-        try {
-          const saved = JSON.parse(localStorage.getItem('game_login_plus_stt'));
-          if (saved && saved.name && saved.team) {
-            state.name = saved.name;
-            state.team = saved.team;
-            // find avatar definition by comparing src/char
-            const idx = avatarDefs.findIndex(av => (av.type === 'img' ? av.src === saved.avatar : av.char === saved.avatar));
-            if (idx >= 0) selectAvatar(idx);
-            showLobby();
-          }
-        } catch (e) {}
-      })();
-    </script>
-  </body>
+      });
+    }
+
+    // ===== STT (tale → tekst) og TTS (oplæsning) =====
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const synth = window.speechSynthesis;
+
+    $("#micBtn").onclick = ()=>{
+      if(!SR) return alert("Din browser understøtter ikke talegenkendelse.");
+      const active = document.activeElement;
+      const rec = new SR(); rec.lang = "da-DK"; rec.interimResults = false; rec.maxAlternatives = 1;
+      rec.onresult = (e)=>{
+        const t = e.results[0][0].transcript;
+        if(active && (active.tagName==="INPUT" || active.tagName==="TEXTAREA")) active.value = t;
+        pushEvent(`🎤 "${t}"`);
+      };
+      rec.start();
+    };
+
+    $("#speakBtn").onclick = ()=>{
+      const sel = document.getSelection()?.toString().trim();
+      const txt = sel || `Hold ${state.team || "—"}: Tal eller skriv dit svar.`;
+      const u = new SpeechSynthesisUtterance(txt); u.lang = "da-DK";
+      synth.cancel(); synth.speak(u);
+    };
+
+    // ===== Dysleksi-tilstand =====
+    $("#dysBtn").onclick = ()=>{
+      const on = !document.documentElement.classList.contains("dyslexia");
+      document.documentElement.classList.toggle("dyslexia", on);
+      $("#dysBtn").textContent = on ? "👁‍🗨 Dys ✓" : "👁‍🗨 Dys";
+    };
+
+    // ===== Hjælpefunktioner =====
+    function sample(a){ return a[Math.floor(Math.random()*a.length)] }
+    function pushEvent(msg){
+      const li = document.createElement("li"); li.textContent = msg;
+      $("#events").appendChild(li);
+    }
+    function toast(msg){
+      const el = document.createElement("div");
+      el.textContent = msg;
+      Object.assign(el.style, {position:"fixed",right:"18px",bottom:"18px",background:"rgba(12,18,39,.9)",border:"1px solid rgba(148,163,184,.35)",padding:"10px 14px",borderRadius:"12px",zIndex:"9999"});
+      document.body.appendChild(el); setTimeout(()=>el.remove(), 1800);
+    }
+
+    // Gendan tidligere login (valgfrit)
+    try{
+      const saved = JSON.parse(localStorage.getItem("spil_login_v2")||"null");
+      if(saved){ $("#name").value = saved.name||""; $("#team").value = saved.team||""; state.avatar = saved.avatar||AVATARS[0]; }
+    }catch{}
+  </script>
+</body>
 </html>
